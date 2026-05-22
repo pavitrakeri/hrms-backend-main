@@ -74,6 +74,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "https://hrms-2-t02s.onrender.com",
+        "https://connect-thrive-ops.lovable.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
