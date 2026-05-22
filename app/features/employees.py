@@ -1,0 +1,255 @@
+import bcrypt
+import logging
+from fastapi import HTTPException
+from typing import Optional, List
+
+async def add_employee(conn, user, req):
+    """
+    HR/Admin can add new employees with extended details.
+    """
+    try:
+        # Validate caller role
+        caller_role = await conn.fetchval("""
+            SELECT r.name FROM roles r
+            JOIN users u ON u.role_id = r.id
+            WHERE u.id=$1
+        """, user["id"])
+        if caller_role not in ("hr", "admin"):
+            raise HTTPException(status_code=403, detail="Only HR or Admin can add employees")
+
+        # Resolve role_id
+        role_row = await conn.fetchrow("SELECT id FROM roles WHERE name=$1", req.role)
+        if not role_row:
+            raise HTTPException(status_code=400, detail="Invalid role")
+        role_id = role_row["id"]
+
+        # Resolve manager
+        manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager not found")
+
+        # Resolve HR
+        hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+        if not hr:
+            raise HTTPException(status_code=400, detail="HR not found")
+
+        # Resolve or create department
+        dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
+        if not dept:
+            dept = await conn.fetchrow("""
+                INSERT INTO departments (id, name, manager_id, hr_id)
+                VALUES (gen_random_uuid(), $1, $2, $3)
+                RETURNING id, name
+            """, req.department, manager["id"], hr["id"])
+        dept_id, dept_name = dept["id"], dept["name"]
+
+        # Hash password
+        pw_hash = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode()
+
+        # Insert new employee with all extended fields
+        row = await conn.fetchrow("""
+                INSERT INTO users (
+                    id, email, full_name, password_hash, role_id,
+                    manager_id, is_active, created_at,
+                    department_id, joining_date,
+                    status, office_location, designation,
+                    gender, date_of_birth, marital_status, nationality,
+                    passport_number, emirates_id_number, uid_number, file_number,
+                    contract_type, labour_card_number, labour_card_expiry,
+                    visa_sponsorship, residence_visa_expiry, work_email,
+                    contact_number, personal_email, basic_salary, hra, mobile,
+                    transportation, other, total_salary, flight_ticket,
+                    wps_unique_id, wps, medical_insurance_category
+                )
+                VALUES (
+                    gen_random_uuid(), $1, $2, $3, $4,
+                    $5, true, now(),
+                    $6, $7,
+                    $8, $9, $10,
+                    $11, $12, $13, $14,
+                    $15, $16, $17, $18,
+                    $19, $20, $21,
+                    $22, $23, $24,
+                    $25, $26, $27, $28, $29,
+                    $30, $31, $32, $33,
+                    $34, $35, $36
+                )
+                RETURNING id
+            """,
+            req.email, req.full_name, pw_hash, role_id,
+            manager["id"],  # $5
+            dept_id, req.joining_date,  # $6–$7
+            req.status, req.office_location, req.designation,  # $8-$10
+            req.gender, req.date_of_birth, req.marital_status, req.nationality,  # $11–$14
+            req.passport_number, req.emirates_id_number, req.uid_number, req.file_number,  # $15–$18
+            req.contract_type, req.labour_card_number, req.labour_card_expiry,  # $19–$21
+            req.visa_sponsorship, req.residence_visa_expiry, req.work_email,  # $22–$24
+            req.contact_number, req.personal_email, req.basic_salary, req.hra, req.mobile,  # $25–$29
+            req.transportation, req.other, req.total_salary, req.flight_ticket,  # $30–$33
+            req.wps_unique_id, req.wps, req.medical_insurance_category  # $34–$36
+            )
+
+
+        return {"status": "success", "message": "Employee created", "employee_id": str(row["id"])}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Employee creation failed: {str(e)}")
+
+
+async def list_employees(conn, user, department: Optional[str] = None, role: Optional[str] = None, active: Optional[bool] = None):
+    """
+    HR/Admin see all, Manager sees only their team.
+    """
+    # get caller role
+    caller_role = await conn.fetchval("""
+        SELECT r.name FROM roles r
+        JOIN users u ON u.role_id = r.id
+        WHERE u.id=$1
+    """, user["id"])
+
+    if caller_role not in ("hr", "admin", "line_manager", "cfo"):
+        raise HTTPException(status_code=403, detail="Not authorized to view employee list")
+
+    # base query with proper department join
+    query = """
+        SELECT u.id, u.email, u.full_name, r.name as role, 
+               COALESCE(d.name, 'Unassigned') as department, 
+               m.email as manager_email, u.is_active, u.created_at
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
+        LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN users m ON u.manager_id = m.id
+        WHERE 1=1
+    """
+    params = []
+    conditions = []
+
+    if caller_role == "line_manager":
+        # restrict to same department or direct reports
+        dept_id = await conn.fetchval("SELECT department_id FROM users WHERE id=$1", user["id"])
+        query += " AND (u.department_id=$1 OR u.manager_id=$1)"
+        params.append(user["id"])
+        # NOTE: If you want manager to only see their department, replace with dept_id logic.
+
+    if department:
+        conditions.append(f"d.name=$${len(params)+1}$$")
+        params.append(department)
+
+    if role:
+        conditions.append(f"r.name=$${len(params)+1}$$")
+        params.append(role)
+
+    if active is not None:
+        conditions.append(f"u.is_active=$${len(params)+1}$$")
+        params.append(active)
+
+    if conditions:
+        query += " AND " + " AND ".join(conditions)
+
+    query += " ORDER BY u.created_at DESC"
+
+    rows = await conn.fetch(query, *params)
+
+    return [
+        {
+            "id": str(r["id"]),
+            "email": r["email"],
+            "full_name": r["full_name"],
+            "role": r["role"],
+            "department": r["department"],
+            "manager_email": r["manager_email"],
+            "is_active": r["is_active"],
+            "created_at": r["created_at"].isoformat()
+        }
+        for r in rows
+    ]
+
+
+async def get_employee_details(conn, user, employee_id: str):
+    """
+    Get detailed information about a specific employee.
+    """
+    # Log request for debugging (shows in server logs)
+    try:
+        caller_id = user.get("id") if isinstance(user, dict) else None
+    except Exception:
+        caller_id = None
+    logging.info("get_employee_details called: caller_id=%s employee_id=%s", caller_id, employee_id)
+
+    # Check authorization
+    caller_role = await conn.fetchval("""
+        SELECT r.name FROM roles r
+        JOIN users u ON u.role_id = r.id
+        WHERE u.id=$1
+    """, user["id"])
+
+    if caller_role not in ("hr", "admin", "line_manager", "cfo"):
+        raise HTTPException(status_code=403, detail="Not authorized to view employee details")
+
+    # Fetch employee with full details
+    row = await conn.fetchrow("""
+        SELECT 
+            u.id, u.email, u.full_name, r.name as role, 
+            COALESCE(d.name, 'Unassigned') as department, 
+            m.email as manager_email, u.is_active, u.created_at,
+            u.status, u.office_location, u.designation,
+            u.gender, u.date_of_birth, u.marital_status, u.nationality,
+            u.passport_number, u.emirates_id_number, u.uid_number, u.file_number,
+            u.contract_type, u.labour_card_number, u.labour_card_expiry,
+            u.visa_sponsorship, u.residence_visa_expiry, u.work_email,
+            u.contact_number, u.personal_email, u.basic_salary, u.hra, u.mobile,
+            u.transportation, u.other, u.total_salary, u.flight_ticket,
+            u.wps_unique_id, u.wps, u.medical_insurance_category
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
+        LEFT JOIN departments d ON u.department_id = d.id
+        LEFT JOIN users m ON u.manager_id = m.id
+        WHERE u.id=$1
+    """, employee_id)
+
+    if not row:
+        logging.info("employee not found: employee_id=%s requested_by=%s", employee_id, caller_id)
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    return {
+        "id": str(row["id"]),
+        "email": row["email"],
+        "full_name": row["full_name"],
+        "role": row["role"],
+        "department": row["department"],
+        "manager_email": row["manager_email"],
+        "is_active": row["is_active"],
+        "created_at": row["created_at"].isoformat(),
+        "status": row["status"],
+        "office_location": row["office_location"],
+        "designation": row["designation"],
+        "gender": row["gender"],
+        "date_of_birth": row["date_of_birth"].isoformat() if row["date_of_birth"] else None,
+        "marital_status": row["marital_status"],
+        "nationality": row["nationality"],
+        "passport_number": row["passport_number"],
+        "emirates_id_number": row["emirates_id_number"],
+        "uid_number": row["uid_number"],
+        "file_number": row["file_number"],
+        "contract_type": row["contract_type"],
+        "labour_card_number": row["labour_card_number"],
+        "labour_card_expiry": row["labour_card_expiry"].isoformat() if row["labour_card_expiry"] else None,
+        "visa_sponsorship": row["visa_sponsorship"],
+        "residence_visa_expiry": row["residence_visa_expiry"].isoformat() if row["residence_visa_expiry"] else None,
+        "work_email": row["work_email"],
+        "contact_number": row["contact_number"],
+        "personal_email": row["personal_email"],
+        "basic_salary": float(row["basic_salary"]) if row["basic_salary"] else None,
+        "hra": float(row["hra"]) if row["hra"] else None,
+        "mobile": float(row["mobile"]) if row["mobile"] else None,
+        "transportation": float(row["transportation"]) if row["transportation"] else None,
+        "other": float(row["other"]) if row["other"] else None,
+        "total_salary": float(row["total_salary"]) if row["total_salary"] else None,
+        "flight_ticket": row["flight_ticket"],
+        "wps_unique_id": row["wps_unique_id"],
+        "wps": row["wps"],
+        "medical_insurance_category": row["medical_insurance_category"],
+        "employee_documents": []  # Placeholder for documents
+    }

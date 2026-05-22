@@ -1,0 +1,69 @@
+version: "3.9"
+
+services:
+  # PostgreSQL Database
+  # db:
+  #   image: postgres:16
+  #   container_name: hrms_db
+  #   restart: always
+  #   environment:
+  #     POSTGRES_DB: hrms
+  #     POSTGRES_USER: hrms_user
+  #     POSTGRES_PASSWORD: hrms_pass
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+  # Redis (for Celery message broker)
+  redis:
+    image: redis:7
+    container_name: hrms_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # FastAPI App
+  web:
+    build: .
+    container_name: hrms_api
+    restart: always
+    depends_on:
+      - redis
+    environment:
+      DATABASE_URL: postgresql://neondb_owner:npg_yO2zjDJnTgf3@ep-weathered-dew-adxeo0az-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    command: >
+      bash -c "alembic upgrade head || true &&
+               uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # Celery Worker
+  worker:
+    build: .
+    container_name: hrms_worker
+    restart: always
+    depends_on:
+      - web
+      - redis
+    environment:
+      DATABASE_URL: postgresql://neondb_owner:npg_yO2zjDJnTgf3@ep-weathered-dew-adxeo0az-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      REDIS_URL: redis://redis:6379/0
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+
+  # Celery Beat Scheduler
+  beat:
+    build: .
+    container_name: hrms_beat
+    restart: always
+    depends_on:
+      - worker
+      - redis
+    environment:
+      DATABASE_URL: postgresql://neondb_owner:npg_yO2zjDJnTgf3@ep-weathered-dew-adxeo0az-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      REDIS_URL: redis://redis:6379/0
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+
+volumes:
+  postgres_data:

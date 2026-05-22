@@ -1,0 +1,17 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	logallrefupdates = true
+	symlinks = false
+	ignorecase = true
+[remote "origin"]
+	url = https://github.com/SoumyaMB10/HRMS_2.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = pavitrakeri
+	merge = refs/heads/main
+	vscode-merge-base = origin/main
+[remote "pavitrakeri"]
+	url = https://github.com/pavitrakeri/hrms-backend-main.git
+	fetch = +refs/heads/*:refs/remotes/pavitrakeri/*

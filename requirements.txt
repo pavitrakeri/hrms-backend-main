@@ -1,0 +1,13 @@
+fastapi
+gunicorn
+uvicorn
+asyncpg
+passlib[bcrypt]
+bcrypt
+PyJWT
+python-dotenv
+pydantic[email]
+supabase
+python-multipart
+celery[redis]
+redis

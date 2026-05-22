@@ -1,0 +1,4 @@
+# pack-refs with: peeled fully-peeled sorted 
+3a3e2b226a68eb5ace60f1f886ffe5bd38593f65 refs/remotes/origin/feature/aws_test
+a16f73ee0ab2a8c89237e0b3833eacba70a7318b refs/remotes/origin/main
+594ec4b17807b6ab8444870c858bbc8ee2e8cc5d refs/remotes/origin/revert-1-feature/aws_test
