@@ -21,8 +21,8 @@ from app.datamodels.resignation_models import (ResignationApplyRequest, ApproveR
 from app.features.resignations import (apply_resignation, approve_resignation, reject_resignation, cancel_resignation,
                                         get_my_resignations, get_my_resignation_approvals)
 
-from app.datamodels.employee_models import AddEmployeeRequest, AddEmployeeResponse, EmployeeListResponse
-from app.features.employees import add_employee, list_employees, get_employee_details
+from app.datamodels.employee_models import AddEmployeeRequest, AddEmployeeResponse, EmployeeListResponse, UpdateEmployeeRequest
+from app.features.employees import add_employee, list_employees, get_employee_details, update_employee
 
 from app.datamodels.policy_models import PolicyListResponse, PolicyAcknowledgeResponse, PolicyUploadResponse
 from app.features.policies import get_my_policies, acknowledge_policy, upload_policy
@@ -408,6 +408,12 @@ async def get_employee(employee_id: str, user=Depends(get_current_user)):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return await get_employee_details(conn, user, employee_id)
+
+@app.put("/employees/{employee_id}", tags=["Employee"])
+async def update_employee_endpoint(employee_id: str, req: UpdateEmployeeRequest, user=Depends(get_current_user)):
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await update_employee(conn, user, employee_id, req)
     
 @app.get("/policies/my", response_model=PolicyListResponse, tags=["Policy"])
 async def my_policies(user=Depends(get_current_user)):
