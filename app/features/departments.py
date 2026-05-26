@@ -87,32 +87,44 @@ async def update_department(conn, user, req):
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
 
-    # ✅ 3. Resolve Manager (optional)
-    manager_id = dept["manager_id"]
-    if req.manager_email:
-        manager_row = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
-        if not manager_row:
-            raise HTTPException(status_code=400, detail="Manager not found")
-        manager_id = manager_row["id"]
+    fields_set = getattr(req, "model_fields_set", getattr(req, "__fields_set__", None))
 
-    # ✅ 4. Resolve HR (optional)
-    hr_id = dept["hr_id"]
-    if req.hr_email:
-        hr_row = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
-        if not hr_row:
-            raise HTTPException(status_code=400, detail="HR not found")
-        hr_id = hr_row["id"]
+    # ✅ 3. Resolve Name
+    name = req.name if (fields_set and "name" in fields_set and req.name is not None) else dept["name"]
 
-    # ✅ 5. Update Department
+    # ✅ 4. Resolve Manager (optional, support explicit clearing)
+    if fields_set and "manager_email" in fields_set:
+        if req.manager_email:
+            manager_row = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+            if not manager_row:
+                raise HTTPException(status_code=400, detail="Manager not found")
+            manager_id = manager_row["id"]
+        else:
+            manager_id = None
+    else:
+        manager_id = dept["manager_id"]
+
+    # ✅ 5. Resolve HR (optional, support explicit clearing)
+    if fields_set and "hr_email" in fields_set:
+        if req.hr_email:
+            hr_row = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+            if not hr_row:
+                raise HTTPException(status_code=400, detail="HR not found")
+            hr_id = hr_row["id"]
+        else:
+            hr_id = None
+    else:
+        hr_id = dept["hr_id"]
+
+    # ✅ 6. Update Department
     await conn.execute("""
         UPDATE departments
         SET 
-            name = COALESCE($1, name),
-            manager_id = COALESCE($2, manager_id),
-            hr_id = COALESCE($3, hr_id),
-            created_at = created_at  -- keep same timestamp
+            name = $1,
+            manager_id = $2,
+            hr_id = $3
         WHERE id = $4
-    """, req.name, manager_id, hr_id, req.department_id)
+    """, name, manager_id, hr_id, req.department_id)
 
     return {
         "status": "success",
