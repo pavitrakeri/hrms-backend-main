@@ -119,3 +119,42 @@ async def update_department(conn, user, req):
         "message": f"Department updated successfully",
         "department_id": req.department_id
     }
+
+
+async def delete_department(conn, user, department_id: str):
+    """
+    Delete an existing department.
+    Only Admin or HR can perform this action.
+    """
+    # 1. Check permission
+    role = await conn.fetchval("""
+        SELECT r.name FROM roles r
+        JOIN users u ON u.role_id = r.id
+        WHERE u.id=$1
+    """, user["id"])
+
+    if role not in ("admin", "hr"):
+        raise HTTPException(status_code=403, detail="Only Admin or HR can delete departments")
+
+    # 2. Check if department exists
+    dept = await conn.fetchrow("SELECT name FROM departments WHERE id=$1", department_id)
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    # 3. Check if there are users in this department
+    users_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE department_id=$1", department_id)
+    if users_count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete department. There are employees assigned to it.")
+
+    # 4. Check if there are projects in this department
+    projects_count = await conn.fetchval("SELECT COUNT(*) FROM projects WHERE department_id=$1", department_id)
+    if projects_count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete department. There are projects assigned to it.")
+
+    # 5. Delete Department
+    await conn.execute("DELETE FROM departments WHERE id=$1", department_id)
+
+    return {
+        "status": "success",
+        "message": f"Department '{dept['name']}' deleted successfully"
+    }

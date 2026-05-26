@@ -39,8 +39,8 @@ from app.datamodels.leave_balance_models import LeaveBalanceResponse
 from app.features.leaves_summary import get_leave_summary
 from app.datamodels.leave_summary_models import LeaveSummaryResponse
 
-from app.datamodels.department_models import DepartmentCreateRequest, DepartmentCreateResponse
-from app.features.departments import create_department
+from app.datamodels.department_models import DepartmentCreateRequest, DepartmentCreateResponse, DepartmentUpdateRequest, DepartmentUpdateResponse
+from app.features.departments import create_department, update_department, delete_department
 from app.features.departments_list import list_departments
 
 from app.datamodels.role_models import RoleCreateRequest, RoleCreateResponse
@@ -541,6 +541,26 @@ async def departments_list(user=Depends(get_current_user)):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return {"departments": await list_departments(conn, user)}
+
+@app.put("/departments/update", response_model=DepartmentUpdateResponse, tags=["Departments"])
+async def departments_update(req: DepartmentUpdateRequest, user=Depends(get_current_user)):
+    """
+    Update an existing department.
+    Only Admin or HR can access this.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await update_department(conn, user, req)
+
+@app.delete("/departments/{department_id}", tags=["Departments"])
+async def departments_delete(department_id: str, user=Depends(get_current_user)):
+    """
+    Delete an existing department.
+    Only Admin or HR can access this.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await delete_department(conn, user, department_id)
     
 
 @app.post("/roles/create", response_model=RoleCreateResponse, tags=["Roles"])
