@@ -14,7 +14,7 @@ security = HTTPBearer()
 
 JWT_SECRET = os.getenv("JWT_SECRET", "changeme")
 JWT_ALGO = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 480
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440 # 24 hours in minutes
 
 # --- Password verification using bcrypt directly ---
 def verify_password(plain: str, hashed: str) -> bool:
