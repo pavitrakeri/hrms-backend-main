@@ -43,8 +43,8 @@ from app.datamodels.department_models import DepartmentCreateRequest, Department
 from app.features.departments import create_department, update_department, delete_department
 from app.features.departments_list import list_departments
 
-from app.datamodels.role_models import RoleCreateRequest, RoleCreateResponse
-from app.features.roles import create_role
+from app.datamodels.role_models import RoleCreateRequest, RoleCreateResponse, RoleUpdateRequest, RoleUpdateResponse
+from app.features.roles import create_role, update_role, delete_role
 from app.features.roles_list import list_roles
 
 from pydantic import BaseModel
@@ -582,6 +582,26 @@ async def roles_list(user=Depends(get_current_user)):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return {"roles": await list_roles(conn, user)}
+
+@app.put("/roles/update", response_model=RoleUpdateResponse, tags=["Roles"])
+async def roles_update(req: RoleUpdateRequest, user=Depends(get_current_user)):
+    """
+    Update an existing role.
+    Only Admin or HR can access this endpoint.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await update_role(conn, user, req)
+
+@app.delete("/roles/{role_id}", tags=["Roles"])
+async def roles_delete(role_id: str, user=Depends(get_current_user)):
+    """
+    Delete an existing role.
+    Only Admin or HR can access this endpoint.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await delete_role(conn, user, role_id)
     
 
 @app.post("/auth/reset-password", response_model=ResetPasswordResponse, tags=["Auth"])
