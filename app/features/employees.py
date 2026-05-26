@@ -253,3 +253,80 @@ async def get_employee_details(conn, user, employee_id: str):
         "medical_insurance_category": row["medical_insurance_category"],
         "employee_documents": []  # Placeholder for documents
     }
+
+
+async def update_employee(conn, user, employee_id: str, req):
+    """
+    HR/Admin can update employee details.
+    """
+    try:
+        # Validate caller role
+        caller_role = await conn.fetchval("""
+            SELECT r.name FROM roles r
+            JOIN users u ON u.role_id = r.id
+            WHERE u.id=$1
+        """, user["id"])
+        if caller_role not in ("hr", "admin"):
+            raise HTTPException(status_code=403, detail="Only HR or Admin can edit employee details")
+
+        # Resolve role_id
+        role_row = await conn.fetchrow("SELECT id FROM roles WHERE name=$1", req.role)
+        if not role_row:
+            raise HTTPException(status_code=400, detail="Invalid role")
+        role_id = role_row["id"]
+
+        # Resolve manager
+        manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager not found")
+
+        # Resolve HR
+        hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+        if not hr:
+            raise HTTPException(status_code=400, detail="HR not found")
+
+        # Resolve or create department
+        dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
+        if not dept:
+            dept = await conn.fetchrow("""
+                INSERT INTO departments (id, name, manager_id, hr_id)
+                VALUES (gen_random_uuid(), $1, $2, $3)
+                RETURNING id, name
+            """, req.department, manager["id"], hr["id"])
+        dept_id = dept["id"]
+
+        # Update query
+        await conn.execute("""
+            UPDATE users SET
+                email=$1, full_name=$2, role_id=$3, manager_id=$4,
+                department_id=$5, joining_date=$6, status=$7, office_location=$8,
+                designation=$9, gender=$10, date_of_birth=$11, marital_status=$12,
+                nationality=$13, passport_number=$14, emirates_id_number=$15,
+                uid_number=$16, file_number=$17, contract_type=$18,
+                labour_card_number=$19, labour_card_expiry=$20, visa_sponsorship=$21,
+                residence_visa_expiry=$22, work_email=$23, contact_number=$24,
+                personal_email=$25, basic_salary=$26, hra=$27, mobile=$28,
+                transportation=$29, other=$30, total_salary=$31, flight_ticket=$32,
+                wps_unique_id=$33, wps=$34, medical_insurance_category=$35,
+                is_active=$36
+            WHERE id=$37
+        """,
+            req.email, req.full_name, role_id, manager["id"],
+            dept_id, req.joining_date, req.status, req.office_location,
+            req.designation, req.gender, req.date_of_birth, req.marital_status,
+            req.nationality, req.passport_number, req.emirates_id_number,
+            req.uid_number, req.file_number, req.contract_type,
+            req.labour_card_number, req.labour_card_expiry, req.visa_sponsorship,
+            req.residence_visa_expiry, req.work_email, req.contact_number,
+            req.personal_email, req.basic_salary, req.hra, req.mobile,
+            req.transportation, req.other, req.total_salary, req.flight_ticket,
+            req.wps_unique_id, req.wps, req.medical_insurance_category,
+            req.is_active, employee_id
+        )
+
+        return {"status": "success", "message": "Employee details updated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Employee update failed: {str(e)}")
+
