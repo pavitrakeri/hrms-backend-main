@@ -24,24 +24,32 @@ async def add_employee(conn, user, req):
         role_id = role_row["id"]
 
         # Resolve manager
-        manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
-        if not manager:
-            raise HTTPException(status_code=400, detail="Manager not found")
+        manager_id = None
+        if req.manager_email:
+            manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+            if not manager:
+                raise HTTPException(status_code=400, detail="Manager not found")
+            manager_id = manager["id"]
 
         # Resolve HR
-        hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
-        if not hr:
-            raise HTTPException(status_code=400, detail="HR not found")
+        hr_id = None
+        if req.hr_email:
+            hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+            if not hr:
+                raise HTTPException(status_code=400, detail="HR not found")
+            hr_id = hr["id"]
 
         # Resolve or create department
-        dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
-        if not dept:
-            dept = await conn.fetchrow("""
-                INSERT INTO departments (id, name, manager_id, hr_id)
-                VALUES (gen_random_uuid(), $1, $2, $3)
-                RETURNING id, name
-            """, req.department, manager["id"], hr["id"])
-        dept_id, dept_name = dept["id"], dept["name"]
+        dept_id = None
+        if req.department:
+            dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
+            if not dept:
+                dept = await conn.fetchrow("""
+                    INSERT INTO departments (id, name, manager_id, hr_id)
+                    VALUES (gen_random_uuid(), $1, $2, $3)
+                    RETURNING id, name
+                """, req.department, manager_id, hr_id)
+            dept_id = dept["id"]
 
         # Hash password
         pw_hash = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode()
@@ -82,7 +90,7 @@ async def add_employee(conn, user, req):
                 RETURNING id
             """,
             req.email, req.full_name, pw_hash, role_id,
-            manager["id"],  # $5
+            manager_id,  # $5
             dept_id, req.joining_date,  # $6–$7
             req.status, req.office_location, req.designation,  # $8-$10
             req.gender, req.date_of_birth, req.marital_status, req.nationality,  # $11–$14
@@ -295,24 +303,32 @@ async def update_employee(conn, user, employee_id: str, req):
         role_id = role_row["id"]
 
         # Resolve manager
-        manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
-        if not manager:
-            raise HTTPException(status_code=400, detail="Manager not found")
+        manager_id = None
+        if req.manager_email:
+            manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+            if not manager:
+                raise HTTPException(status_code=400, detail="Manager not found")
+            manager_id = manager["id"]
 
         # Resolve HR
-        hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
-        if not hr:
-            raise HTTPException(status_code=400, detail="HR not found")
+        hr_id = None
+        if req.hr_email:
+            hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+            if not hr:
+                raise HTTPException(status_code=400, detail="HR not found")
+            hr_id = hr["id"]
 
         # Resolve or create department
-        dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
-        if not dept:
-            dept = await conn.fetchrow("""
-                INSERT INTO departments (id, name, manager_id, hr_id)
-                VALUES (gen_random_uuid(), $1, $2, $3)
-                RETURNING id, name
-            """, req.department, manager["id"], hr["id"])
-        dept_id = dept["id"]
+        dept_id = None
+        if req.department:
+            dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
+            if not dept:
+                dept = await conn.fetchrow("""
+                    INSERT INTO departments (id, name, manager_id, hr_id)
+                    VALUES (gen_random_uuid(), $1, $2, $3)
+                    RETURNING id, name
+                """, req.department, manager_id, hr_id)
+            dept_id = dept["id"]
 
         # Update query
         await conn.execute("""
@@ -333,7 +349,7 @@ async def update_employee(conn, user, employee_id: str, req):
                 emergency_contact_name=$43, emergency_contact_number=$44
             WHERE id=$45
         """,
-            req.email, req.full_name, role_id, manager["id"],
+            req.email, req.full_name, role_id, manager_id,
             dept_id, req.joining_date, req.status, req.office_location,
             req.designation, req.gender, req.date_of_birth, req.marital_status,
             req.nationality, req.passport_number, req.emirates_id_number,

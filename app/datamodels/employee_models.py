@@ -6,9 +6,9 @@ class AddEmployeeRequest(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    manager_email: EmailStr
-    hr_email: EmailStr
-    department: str
+    manager_email: Optional[EmailStr] = None
+    hr_email: Optional[EmailStr] = None
+    department: Optional[str] = None
     role: str   # "employee" | "line_manager" | "hr" | "admin"
     employment_status: Optional[str] = "probation"
     status: Optional[str] = None
@@ -73,9 +73,9 @@ class EmployeeListResponse(BaseModel):
 class UpdateEmployeeRequest(BaseModel):
     full_name: str
     email: EmailStr
-    manager_email: EmailStr
-    hr_email: EmailStr
-    department: str
+    manager_email: Optional[EmailStr] = None
+    hr_email: Optional[EmailStr] = None
+    department: Optional[str] = None
     role: str   # "employee" | "line_manager" | "hr" | "admin" | "cfo"
     password: Optional[str] = None
     employment_status: Optional[str] = "probation"
