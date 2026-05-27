@@ -77,6 +77,7 @@ class UpdateEmployeeRequest(BaseModel):
     hr_email: EmailStr
     department: str
     role: str   # "employee" | "line_manager" | "hr" | "admin" | "cfo"
+    password: Optional[str] = None
     employment_status: Optional[str] = "probation"
     status: Optional[str] = None
     office_location: Optional[str] = None

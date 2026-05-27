@@ -350,6 +350,11 @@ async def update_employee(conn, user, employee_id: str, req):
             employee_id
         )
 
+        # Update password if provided
+        if getattr(req, "password", None):
+            pw_hash = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode()
+            await conn.execute("UPDATE users SET password_hash=$1 WHERE id=$2", pw_hash, employee_id)
+
         return {"status": "success", "message": "Employee details updated"}
     except HTTPException:
         raise
