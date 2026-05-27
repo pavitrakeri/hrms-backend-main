@@ -41,6 +41,14 @@ class AddEmployeeRequest(BaseModel):
     wps_unique_id: Optional[str] = None
     wps: Optional[str] = None
     medical_insurance_category: Optional[str] = None
+    aadhaar_card_number: Optional[str] = None
+    pan_card_number: Optional[str] = None
+    pf_account_number: Optional[str] = None
+    esi_number: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_number: Optional[str] = None
 
 class AddEmployeeResponse(BaseModel):
     status: str
@@ -100,4 +108,12 @@ class UpdateEmployeeRequest(BaseModel):
     wps_unique_id: Optional[str] = None
     wps: Optional[str] = None
     medical_insurance_category: Optional[str] = None
+    aadhaar_card_number: Optional[str] = None
+    pan_card_number: Optional[str] = None
+    pf_account_number: Optional[str] = None
+    esi_number: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_number: Optional[str] = None
     is_active: Optional[bool] = True

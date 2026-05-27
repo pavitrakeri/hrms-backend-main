@@ -59,7 +59,10 @@ async def add_employee(conn, user, req):
                     visa_sponsorship, residence_visa_expiry, work_email,
                     contact_number, personal_email, basic_salary, hra, mobile,
                     transportation, other, total_salary, flight_ticket,
-                    wps_unique_id, wps, medical_insurance_category
+                    wps_unique_id, wps, medical_insurance_category,
+                    aadhaar_card_number, pan_card_number, pf_account_number,
+                    esi_number, bank_account_number, ifsc_code,
+                    emergency_contact_name, emergency_contact_number
                 )
                 VALUES (
                     gen_random_uuid(), $1, $2, $3, $4,
@@ -72,7 +75,9 @@ async def add_employee(conn, user, req):
                     $22, $23, $24,
                     $25, $26, $27, $28, $29,
                     $30, $31, $32, $33,
-                    $34, $35, $36
+                    $34, $35, $36,
+                    $37, $38, $39, $40, $41, $42,
+                    $43, $44
                 )
                 RETURNING id
             """,
@@ -86,7 +91,10 @@ async def add_employee(conn, user, req):
             req.visa_sponsorship, req.residence_visa_expiry, req.work_email,  # $22–$24
             req.contact_number, req.personal_email, req.basic_salary, req.hra, req.mobile,  # $25–$29
             req.transportation, req.other, req.total_salary, req.flight_ticket,  # $30–$33
-            req.wps_unique_id, req.wps, req.medical_insurance_category  # $34–$36
+            req.wps_unique_id, req.wps, req.medical_insurance_category,  # $34–$36
+            req.aadhaar_card_number, req.pan_card_number, req.pf_account_number,  # $37-$39
+            req.esi_number, req.bank_account_number, req.ifsc_code,  # $40-$42
+            req.emergency_contact_name, req.emergency_contact_number  # $43-$44
             )
 
 
@@ -201,7 +209,10 @@ async def get_employee_details(conn, user, employee_id: str):
             u.visa_sponsorship, u.residence_visa_expiry, u.work_email,
             u.contact_number, u.personal_email, u.basic_salary, u.hra, u.mobile,
             u.transportation, u.other, u.total_salary, u.flight_ticket,
-            u.wps_unique_id, u.wps, u.medical_insurance_category
+            u.wps_unique_id, u.wps, u.medical_insurance_category,
+            u.aadhaar_card_number, u.pan_card_number, u.pf_account_number,
+            u.esi_number, u.bank_account_number, u.ifsc_code,
+            u.emergency_contact_name, u.emergency_contact_number
         FROM users u
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN departments d ON u.department_id = d.id
@@ -251,6 +262,14 @@ async def get_employee_details(conn, user, employee_id: str):
         "wps_unique_id": row["wps_unique_id"],
         "wps": row["wps"],
         "medical_insurance_category": row["medical_insurance_category"],
+        "aadhaar_card_number": row["aadhaar_card_number"],
+        "pan_card_number": row["pan_card_number"],
+        "pf_account_number": row["pf_account_number"],
+        "esi_number": row["esi_number"],
+        "bank_account_number": row["bank_account_number"],
+        "ifsc_code": row["ifsc_code"],
+        "emergency_contact_name": row["emergency_contact_name"],
+        "emergency_contact_number": row["emergency_contact_number"],
         "employee_documents": []  # Placeholder for documents
     }
 
@@ -308,8 +327,11 @@ async def update_employee(conn, user, employee_id: str, req):
                 personal_email=$25, basic_salary=$26, hra=$27, mobile=$28,
                 transportation=$29, other=$30, total_salary=$31, flight_ticket=$32,
                 wps_unique_id=$33, wps=$34, medical_insurance_category=$35,
-                is_active=$36
-            WHERE id=$37
+                is_active=$36,
+                aadhaar_card_number=$37, pan_card_number=$38, pf_account_number=$39,
+                esi_number=$40, bank_account_number=$41, ifsc_code=$42,
+                emergency_contact_name=$43, emergency_contact_number=$44
+            WHERE id=$45
         """,
             req.email, req.full_name, role_id, manager["id"],
             dept_id, req.joining_date, req.status, req.office_location,
@@ -321,7 +343,11 @@ async def update_employee(conn, user, employee_id: str, req):
             req.personal_email, req.basic_salary, req.hra, req.mobile,
             req.transportation, req.other, req.total_salary, req.flight_ticket,
             req.wps_unique_id, req.wps, req.medical_insurance_category,
-            req.is_active, employee_id
+            req.is_active,
+            req.aadhaar_card_number, req.pan_card_number, req.pf_account_number,
+            req.esi_number, req.bank_account_number, req.ifsc_code,
+            req.emergency_contact_name, req.emergency_contact_number,
+            employee_id
         )
 
         return {"status": "success", "message": "Employee details updated"}
