@@ -63,7 +63,7 @@ from app.api import projects_routes
 app = FastAPI(title="HRMS API")
 
 # CORS configuration - allow localhost for development and render for production
-# Updated: 2026-05-21 - Force rebuild
+# Updated: 2026-05-27 - Allow Vercel deployments
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -75,7 +75,9 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "https://hrms-2-t02s.onrender.com",
         "https://connect-thrive-ops.lovable.app",
+        "https://hrms-frontend-liard-ten.vercel.app",
     ],
+    allow_origin_regex="https://.*\\.vercel\\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
