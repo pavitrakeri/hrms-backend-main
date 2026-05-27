@@ -18,7 +18,7 @@ async def list_roles(conn, user):
 
     # Fetch all roles
     rows = await conn.fetch("""
-        SELECT id, name
+        SELECT id, name, description
         FROM roles
         ORDER BY name ASC
     """)
@@ -26,7 +26,8 @@ async def list_roles(conn, user):
     return [
         {
             "id": str(row["id"]),
-            "name": row["name"]
+            "name": row["name"],
+            "description": row["description"]
         }
         for row in rows
     ]

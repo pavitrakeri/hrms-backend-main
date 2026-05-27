@@ -43,8 +43,8 @@ from app.datamodels.department_models import DepartmentCreateRequest, Department
 from app.features.departments import create_department, update_department, delete_department
 from app.features.departments_list import list_departments
 
-from app.datamodels.role_models import RoleCreateRequest, RoleCreateResponse
-from app.features.roles import create_role
+from app.datamodels.role_models import RoleCreateRequest, RoleCreateResponse, RoleUpdateRequest, RoleUpdateResponse
+from app.features.roles import create_role, update_role, delete_role
 from app.features.roles_list import list_roles
 
 from pydantic import BaseModel
@@ -62,20 +62,10 @@ from app.api import projects_routes
 
 app = FastAPI(title="HRMS API")
 
-# CORS configuration - allow localhost for development and render for production
-# Updated: 2026-05-21 - Force rebuild
+# CORS configuration - allow any origin to connect to the backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:8080",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "https://hrms-2-t02s.onrender.com",
-        "https://connect-thrive-ops.lovable.app",
-    ],
+    allow_origin_regex="https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -582,6 +572,26 @@ async def roles_list(user=Depends(get_current_user)):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return {"roles": await list_roles(conn, user)}
+
+@app.put("/roles/update", response_model=RoleUpdateResponse, tags=["Roles"])
+async def roles_update(req: RoleUpdateRequest, user=Depends(get_current_user)):
+    """
+    Update an existing role.
+    Only Admin or HR can access this endpoint.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await update_role(conn, user, req)
+
+@app.delete("/roles/{role_id}", tags=["Roles"])
+async def roles_delete(role_id: str, user=Depends(get_current_user)):
+    """
+    Delete an existing role.
+    Only Admin or HR can access this endpoint.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await delete_role(conn, user, role_id)
     
 
 @app.post("/auth/reset-password", response_model=ResetPasswordResponse, tags=["Auth"])
