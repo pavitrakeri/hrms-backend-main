@@ -49,6 +49,8 @@ from app.features.roles_list import list_roles
 
 from app.datamodels.settings import UpdateProfileRequest, ChangePasswordRequest, CompanySettingsRequest, CompanySettingsResponse
 from app.features.settings import get_my_profile, update_my_profile, change_my_password, get_company_settings, update_company_settings
+from app.datamodels.dashboard import DashboardSummaryResponse
+from app.features.dashboard import get_dashboard_summary
 
 from pydantic import BaseModel
 from datetime import datetime, timezone, date
@@ -658,6 +660,17 @@ async def update_company_settings_api(req: CompanySettingsRequest, user=Depends(
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return await update_company_settings(conn, user, req)
+
+# --- Dashboard Summary Endpoint ---
+
+@app.get("/dashboard/summary", response_model=DashboardSummaryResponse, tags=["Dashboard"])
+async def get_dashboard_summary_api(user=Depends(get_current_user)):
+    """
+    Get dynamic, role-appropriate dashboard metrics and actions.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await get_dashboard_summary(conn, user)
 
 if __name__ == "__main__":
     import os
