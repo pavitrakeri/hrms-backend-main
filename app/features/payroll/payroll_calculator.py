@@ -200,10 +200,7 @@ async def get_sick_leave_days_by_slabs(conn, user_id, date_from, date_to, joinin
     user = await conn.fetchrow("SELECT employment_status, joining_date FROM users WHERE id=$1", user_id)
     if not user:
         return 0,0,0
-    # UAE: no paid sick leave in probation (6 months from joining)
-    if user["employment_status"].lower() == "probation" and (datetime.now().date() - (user["joining_date"] or datetime.now().date())).days < 180:
-        # Sick leave not eligible
-        return 0,0,0
+    # Probation check removed. All users are eligible for sick leave.
     rows = await conn.fetch("""
         SELECT start_date, end_date, half_day, half_day_slot
         FROM leaves

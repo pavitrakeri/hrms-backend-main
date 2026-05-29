@@ -1,9 +1,11 @@
 import bcrypt
 import logging
-from fastapi import HTTPException
+import os
+from fastapi import HTTPException, BackgroundTasks
 from typing import Optional, List
+from app.features.notifications import send_email_background
 
-async def add_employee(conn, user, req):
+async def add_employee(conn, user, req, bg: BackgroundTasks = None):
     """
     HR/Admin can add new employees with extended details.
     """
@@ -105,6 +107,24 @@ async def add_employee(conn, user, req):
             req.emergency_contact_name, req.emergency_contact_number  # $43-$44
             )
 
+        # Send welcome email notification
+        frontend_url = os.getenv("FRONTEND_URL", "https://hrms.aimploy.org").rstrip("/")
+        login_url = f"{frontend_url}/login"
+        
+        subject = "Welcome to Aimploy HRMS - Your Account Details"
+        body = (
+            f"Hello {req.full_name},\n\n"
+            f"Your account has been successfully created on the Aimploy HRMS portal.\n\n"
+            f"You can log in to your account using the following credentials:\n"
+            f"Portal URL: {login_url}\n"
+            f"Username (Email): {req.email}\n"
+            f"Temporary Password: {req.password}\n\n"
+            f"Please log in and update your password as soon as possible.\n\n"
+            f"Best regards,\n"
+            f"Aimploy HR Team"
+        )
+        
+        send_email_background(bg, req.email, subject, body)
 
         return {"status": "success", "message": "Employee created", "employee_id": str(row["id"])}
 

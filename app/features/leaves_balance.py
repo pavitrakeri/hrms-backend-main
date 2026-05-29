@@ -21,6 +21,28 @@ async def get_leave_balance(conn, user, employee_id: Optional[str] = None):
     # Default: employee sees their own
     target_id = employee_id or user["id"]
 
+    # Ensure user exists
+    user_exists = await conn.fetchval("SELECT 1 FROM users WHERE id=$1", target_id)
+    if not user_exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Auto-initialize balances for all active leave types for this user for the current year
+    from datetime import datetime
+    current_year = datetime.now().year
+    
+    active_types = await conn.fetch("SELECT id, default_days FROM leave_types")
+    for lt in active_types:
+        exists = await conn.fetchval("""
+            SELECT 1 FROM leave_balance 
+            WHERE user_id = $1 AND leave_type_id = $2 AND year = $3
+        """, target_id, lt["id"], current_year)
+        if not exists:
+            await conn.execute("""
+                INSERT INTO leave_balance (user_id, leave_type_id, year, total_entitled, used_days, carried_forward)
+                VALUES ($1, $2, $3, $4, 0, 0)
+                ON CONFLICT (user_id, leave_type_id, year) DO NOTHING
+            """, target_id, lt["id"], current_year, lt["default_days"])
+
     # Fetch leave balances
     rows = await conn.fetch("""
         SELECT 
