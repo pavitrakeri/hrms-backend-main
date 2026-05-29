@@ -5,9 +5,12 @@ import smtplib
 import urllib.request
 import urllib.parse
 import urllib.error
+import logging
 from email.message import EmailMessage
 from fastapi import BackgroundTasks
 from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -79,20 +82,20 @@ def _send_email_sync(to_email: str, subject: str, body: str):
             )
             with urllib.request.urlopen(email_req, timeout=15) as res:
                 if res.status in (200, 202):
-                    print(f"Email successfully sent via Microsoft Graph API to {to_email}")
+                    logger.info(f"Email successfully sent via Microsoft Graph API to {to_email}")
                     return True
                 else:
-                    print(f"Microsoft Graph API email send failed with status: {res.status}")
+                    logger.error(f"Microsoft Graph API email send failed with status: {res.status}")
                     return False
         except urllib.error.HTTPError as he:
             try:
                 err_body = he.read().decode("utf-8")
-                print(f"Microsoft Graph API email send failed: HTTP Error {he.code}: {he.reason}. Response: {err_body}")
+                logger.error(f"Microsoft Graph API email send failed: HTTP Error {he.code}: {he.reason}. Response: {err_body}")
             except Exception:
-                print(f"Microsoft Graph API email send failed: HTTP Error {he.code}: {he.reason}")
+                logger.error(f"Microsoft Graph API email send failed: HTTP Error {he.code}: {he.reason}")
             return False
         except Exception as e:
-            print("Microsoft Graph API email send failed:", e)
+            logger.error(f"Microsoft Graph API email send failed: {e}")
             return False
 
     # Fallback to standard SMTP
@@ -106,11 +109,10 @@ def _send_email_sync(to_email: str, subject: str, body: str):
             s.starttls()
             s.login(SMTP_USER, SMTP_PASSWORD)
             s.send_message(msg)
-            print(f"Email successfully sent via SMTP to {to_email}")
+            logger.info(f"Email successfully sent via SMTP to {to_email}")
             return True
     except Exception as e:
-        # In prod, log this instead of printing
-        print("Email send failed:", e)
+        logger.error(f"SMTP Email send failed: {e}")
         return False
 
 def send_email_background(bg: BackgroundTasks, to_email: str, subject: str, body: str):
