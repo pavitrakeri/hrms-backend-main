@@ -54,7 +54,7 @@ class MyLeaveRow(BaseModel):
     leave_type: str
     start_date: date
     end_date: date
-    reason: str
+    reason: Optional[str] = None
     status: str
     approvals: List[MyLeaveApproval]
 
