@@ -78,6 +78,7 @@ def _send_email_sync(to_email: str, subject: str, body: str):
             )
             with urllib.request.urlopen(email_req, timeout=15) as res:
                 if res.status in (200, 202):
+                    print(f"Email successfully sent via Microsoft Graph API to {to_email}")
                     return True
                 else:
                     print(f"Microsoft Graph API email send failed with status: {res.status}")
@@ -97,6 +98,7 @@ def _send_email_sync(to_email: str, subject: str, body: str):
             s.starttls()
             s.login(SMTP_USER, SMTP_PASSWORD)
             s.send_message(msg)
+            print(f"Email successfully sent via SMTP to {to_email}")
             return True
     except Exception as e:
         # In prod, log this instead of printing
