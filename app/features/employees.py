@@ -72,7 +72,8 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
                     wps_unique_id, wps, medical_insurance_category,
                     aadhaar_card_number, pan_card_number, pf_account_number,
                     esi_number, bank_account_number, ifsc_code,
-                    emergency_contact_name, emergency_contact_number
+                    emergency_contact_name, emergency_contact_number,
+                    password_reset_required
                 )
                 VALUES (
                     gen_random_uuid(), $1, $2, $3, $4,
@@ -87,7 +88,8 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
                     $30, $31, $32, $33,
                     $34, $35, $36,
                     $37, $38, $39, $40, $41, $42,
-                    $43, $44
+                    $43, $44,
+                    true
                 )
                 RETURNING id
             """,
@@ -389,7 +391,7 @@ async def update_employee(conn, user, employee_id: str, req):
         # Update password if provided
         if getattr(req, "password", None):
             pw_hash = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode()
-            await conn.execute("UPDATE users SET password_hash=$1 WHERE id=$2", pw_hash, employee_id)
+            await conn.execute("UPDATE users SET password_hash=$1, password_reset_required=true WHERE id=$2", pw_hash, employee_id)
 
         return {"status": "success", "message": "Employee details updated"}
     except HTTPException:

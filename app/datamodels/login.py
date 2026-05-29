@@ -11,3 +11,4 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_at: datetime
     role: str
+    password_reset_required: bool = False
