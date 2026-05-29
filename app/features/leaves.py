@@ -11,8 +11,7 @@ from app.features.notifications import create_db_notification, send_email_backgr
 # Map leave_type name -> list of approver roles (in order)
 LEAVE_WORKFLOWS = {
     "sick": ["manager", "hr"],
-    "annual": ["manager", "hr", "admin"],
-    "unpaid": ["manager", "hr", "admin"],
+    "casual": ["manager", "hr", "admin"],
 }
 
 async def _get_user_with_employment(conn, user_id: str):
@@ -152,40 +151,35 @@ async def apply_leave_with_upload(
         if days_requested <= 0:
             raise HTTPException(status_code=400, detail="Invalid date range")
 
+        # --- Check remaining leave balance ---
+        lb = await _get_leave_balance(conn, user["id"], leave_type_id)
+        available = float(lb["remaining"]) if lb else 0.0
+        if available < days_requested:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient {lt_name} leave balance (available: {available})."
+            )
+
         medical_document_url = None
 
         # --- Sick leave validation ---
-        if lt_name == "sick":
-            if not _is_past_probation(applicant):
-                raise HTTPException(status_code=400, detail="Sick leave available only after probation (6 months).")
+        if lt_name == "sick" and days_requested > 1:
+            if not file:
+                raise HTTPException(status_code=400, detail="Medical document required for sick leave more than 1 day.")
 
-            if days_requested > 1:
-                if not file:
-                    raise HTTPException(status_code=400, detail="Medical document required for sick leave more than 1 day.")
+            # Upload to Supabase
+            ext = (file.filename or "doc").split(".")[-1]
+            path = f"medical_docs/{user['id']}/{uuid.uuid4()}.{ext}"
+            content = await file.read()
 
-                # Upload to Supabase
-                ext = (file.filename or "doc").split(".")[-1]
-                path = f"medical_docs/{user['id']}/{uuid.uuid4()}.{ext}"
-                content = await file.read()
+            try:
+                upload_res = supabase.storage.from_(SUPABASE_BUCKET).upload(path, content)
+                if hasattr(upload_res, "error") and upload_res.error:
+                    raise HTTPException(status_code=500, detail=f"Upload failed: {upload_res.error.message}")
 
-                try:
-                    upload_res = supabase.storage.from_(SUPABASE_BUCKET).upload(path, content)
-                    if hasattr(upload_res, "error") and upload_res.error:
-                        raise HTTPException(status_code=500, detail=f"Upload failed: {upload_res.error.message}")
-
-                    medical_document_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(path)
-                except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
-
-        # --- Annual leave validation ---
-        elif lt_name == "annual":
-            lb = await _get_leave_balance(conn, user["id"], leave_type_id)
-            available = float(lb["remaining"]) if lb else 0.0
-            if available < days_requested:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient annual leave balance (available: {available})."
-                )
+                medical_document_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(path)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
         # --- Insert Leave + Approvers ---
         async with conn.transaction():

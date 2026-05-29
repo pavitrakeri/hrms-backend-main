@@ -6,9 +6,9 @@ class AddEmployeeRequest(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    manager_email: EmailStr
-    hr_email: EmailStr
-    department: str
+    manager_email: Optional[EmailStr] = None
+    hr_email: Optional[EmailStr] = None
+    department: Optional[str] = None
     role: str   # "employee" | "line_manager" | "hr" | "admin"
     employment_status: Optional[str] = "probation"
     status: Optional[str] = None
@@ -41,6 +41,14 @@ class AddEmployeeRequest(BaseModel):
     wps_unique_id: Optional[str] = None
     wps: Optional[str] = None
     medical_insurance_category: Optional[str] = None
+    aadhaar_card_number: Optional[str] = None
+    pan_card_number: Optional[str] = None
+    pf_account_number: Optional[str] = None
+    esi_number: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_number: Optional[str] = None
 
 class AddEmployeeResponse(BaseModel):
     status: str
@@ -65,10 +73,11 @@ class EmployeeListResponse(BaseModel):
 class UpdateEmployeeRequest(BaseModel):
     full_name: str
     email: EmailStr
-    manager_email: EmailStr
-    hr_email: EmailStr
-    department: str
+    manager_email: Optional[EmailStr] = None
+    hr_email: Optional[EmailStr] = None
+    department: Optional[str] = None
     role: str   # "employee" | "line_manager" | "hr" | "admin" | "cfo"
+    password: Optional[str] = None
     employment_status: Optional[str] = "probation"
     status: Optional[str] = None
     office_location: Optional[str] = None
@@ -100,4 +109,12 @@ class UpdateEmployeeRequest(BaseModel):
     wps_unique_id: Optional[str] = None
     wps: Optional[str] = None
     medical_insurance_category: Optional[str] = None
+    aadhaar_card_number: Optional[str] = None
+    pan_card_number: Optional[str] = None
+    pf_account_number: Optional[str] = None
+    esi_number: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_number: Optional[str] = None
     is_active: Optional[bool] = True

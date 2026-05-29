@@ -1,9 +1,11 @@
 import bcrypt
 import logging
-from fastapi import HTTPException
+import os
+from fastapi import HTTPException, BackgroundTasks
 from typing import Optional, List
+from app.features.notifications import send_email_background
 
-async def add_employee(conn, user, req):
+async def add_employee(conn, user, req, bg: BackgroundTasks = None):
     """
     HR/Admin can add new employees with extended details.
     """
@@ -24,24 +26,32 @@ async def add_employee(conn, user, req):
         role_id = role_row["id"]
 
         # Resolve manager
-        manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
-        if not manager:
-            raise HTTPException(status_code=400, detail="Manager not found")
+        manager_id = None
+        if req.manager_email:
+            manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+            if not manager:
+                raise HTTPException(status_code=400, detail="Manager not found")
+            manager_id = manager["id"]
 
         # Resolve HR
-        hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
-        if not hr:
-            raise HTTPException(status_code=400, detail="HR not found")
+        hr_id = None
+        if req.hr_email:
+            hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+            if not hr:
+                raise HTTPException(status_code=400, detail="HR not found")
+            hr_id = hr["id"]
 
         # Resolve or create department
-        dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
-        if not dept:
-            dept = await conn.fetchrow("""
-                INSERT INTO departments (id, name, manager_id, hr_id)
-                VALUES (gen_random_uuid(), $1, $2, $3)
-                RETURNING id, name
-            """, req.department, manager["id"], hr["id"])
-        dept_id, dept_name = dept["id"], dept["name"]
+        dept_id = None
+        if req.department:
+            dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
+            if not dept:
+                dept = await conn.fetchrow("""
+                    INSERT INTO departments (id, name, manager_id, hr_id)
+                    VALUES (gen_random_uuid(), $1, $2, $3)
+                    RETURNING id, name
+                """, req.department, manager_id, hr_id)
+            dept_id = dept["id"]
 
         # Hash password
         pw_hash = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode()
@@ -59,7 +69,10 @@ async def add_employee(conn, user, req):
                     visa_sponsorship, residence_visa_expiry, work_email,
                     contact_number, personal_email, basic_salary, hra, mobile,
                     transportation, other, total_salary, flight_ticket,
-                    wps_unique_id, wps, medical_insurance_category
+                    wps_unique_id, wps, medical_insurance_category,
+                    aadhaar_card_number, pan_card_number, pf_account_number,
+                    esi_number, bank_account_number, ifsc_code,
+                    emergency_contact_name, emergency_contact_number
                 )
                 VALUES (
                     gen_random_uuid(), $1, $2, $3, $4,
@@ -72,12 +85,14 @@ async def add_employee(conn, user, req):
                     $22, $23, $24,
                     $25, $26, $27, $28, $29,
                     $30, $31, $32, $33,
-                    $34, $35, $36
+                    $34, $35, $36,
+                    $37, $38, $39, $40, $41, $42,
+                    $43, $44
                 )
                 RETURNING id
             """,
             req.email, req.full_name, pw_hash, role_id,
-            manager["id"],  # $5
+            manager_id,  # $5
             dept_id, req.joining_date,  # $6–$7
             req.status, req.office_location, req.designation,  # $8-$10
             req.gender, req.date_of_birth, req.marital_status, req.nationality,  # $11–$14
@@ -86,9 +101,30 @@ async def add_employee(conn, user, req):
             req.visa_sponsorship, req.residence_visa_expiry, req.work_email,  # $22–$24
             req.contact_number, req.personal_email, req.basic_salary, req.hra, req.mobile,  # $25–$29
             req.transportation, req.other, req.total_salary, req.flight_ticket,  # $30–$33
-            req.wps_unique_id, req.wps, req.medical_insurance_category  # $34–$36
+            req.wps_unique_id, req.wps, req.medical_insurance_category,  # $34–$36
+            req.aadhaar_card_number, req.pan_card_number, req.pf_account_number,  # $37-$39
+            req.esi_number, req.bank_account_number, req.ifsc_code,  # $40-$42
+            req.emergency_contact_name, req.emergency_contact_number  # $43-$44
             )
 
+        # Send welcome email notification
+        frontend_url = os.getenv("FRONTEND_URL", "https://hrms.aimploy.org").rstrip("/")
+        login_url = f"{frontend_url}/login"
+        
+        subject = "Welcome to Aimploy HRMS - Your Account Details"
+        body = (
+            f"Hello {req.full_name},\n\n"
+            f"Your account has been successfully created on the Aimploy HRMS portal.\n\n"
+            f"You can log in to your account using the following credentials:\n"
+            f"Portal URL: {login_url}\n"
+            f"Username (Email): {req.email}\n"
+            f"Temporary Password: {req.password}\n\n"
+            f"Please log in and update your password as soon as possible.\n\n"
+            f"Best regards,\n"
+            f"Aimploy HR Team"
+        )
+        
+        send_email_background(bg, req.email, subject, body)
 
         return {"status": "success", "message": "Employee created", "employee_id": str(row["id"])}
 
@@ -201,7 +237,10 @@ async def get_employee_details(conn, user, employee_id: str):
             u.visa_sponsorship, u.residence_visa_expiry, u.work_email,
             u.contact_number, u.personal_email, u.basic_salary, u.hra, u.mobile,
             u.transportation, u.other, u.total_salary, u.flight_ticket,
-            u.wps_unique_id, u.wps, u.medical_insurance_category
+            u.wps_unique_id, u.wps, u.medical_insurance_category,
+            u.aadhaar_card_number, u.pan_card_number, u.pf_account_number,
+            u.esi_number, u.bank_account_number, u.ifsc_code,
+            u.emergency_contact_name, u.emergency_contact_number
         FROM users u
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN departments d ON u.department_id = d.id
@@ -251,6 +290,14 @@ async def get_employee_details(conn, user, employee_id: str):
         "wps_unique_id": row["wps_unique_id"],
         "wps": row["wps"],
         "medical_insurance_category": row["medical_insurance_category"],
+        "aadhaar_card_number": row["aadhaar_card_number"],
+        "pan_card_number": row["pan_card_number"],
+        "pf_account_number": row["pf_account_number"],
+        "esi_number": row["esi_number"],
+        "bank_account_number": row["bank_account_number"],
+        "ifsc_code": row["ifsc_code"],
+        "emergency_contact_name": row["emergency_contact_name"],
+        "emergency_contact_number": row["emergency_contact_number"],
         "employee_documents": []  # Placeholder for documents
     }
 
@@ -276,24 +323,32 @@ async def update_employee(conn, user, employee_id: str, req):
         role_id = role_row["id"]
 
         # Resolve manager
-        manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
-        if not manager:
-            raise HTTPException(status_code=400, detail="Manager not found")
+        manager_id = None
+        if req.manager_email:
+            manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
+            if not manager:
+                raise HTTPException(status_code=400, detail="Manager not found")
+            manager_id = manager["id"]
 
         # Resolve HR
-        hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
-        if not hr:
-            raise HTTPException(status_code=400, detail="HR not found")
+        hr_id = None
+        if req.hr_email:
+            hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
+            if not hr:
+                raise HTTPException(status_code=400, detail="HR not found")
+            hr_id = hr["id"]
 
         # Resolve or create department
-        dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
-        if not dept:
-            dept = await conn.fetchrow("""
-                INSERT INTO departments (id, name, manager_id, hr_id)
-                VALUES (gen_random_uuid(), $1, $2, $3)
-                RETURNING id, name
-            """, req.department, manager["id"], hr["id"])
-        dept_id = dept["id"]
+        dept_id = None
+        if req.department:
+            dept = await conn.fetchrow("SELECT id, name FROM departments WHERE name=$1", req.department)
+            if not dept:
+                dept = await conn.fetchrow("""
+                    INSERT INTO departments (id, name, manager_id, hr_id)
+                    VALUES (gen_random_uuid(), $1, $2, $3)
+                    RETURNING id, name
+                """, req.department, manager_id, hr_id)
+            dept_id = dept["id"]
 
         # Update query
         await conn.execute("""
@@ -308,10 +363,13 @@ async def update_employee(conn, user, employee_id: str, req):
                 personal_email=$25, basic_salary=$26, hra=$27, mobile=$28,
                 transportation=$29, other=$30, total_salary=$31, flight_ticket=$32,
                 wps_unique_id=$33, wps=$34, medical_insurance_category=$35,
-                is_active=$36
-            WHERE id=$37
+                is_active=$36,
+                aadhaar_card_number=$37, pan_card_number=$38, pf_account_number=$39,
+                esi_number=$40, bank_account_number=$41, ifsc_code=$42,
+                emergency_contact_name=$43, emergency_contact_number=$44
+            WHERE id=$45
         """,
-            req.email, req.full_name, role_id, manager["id"],
+            req.email, req.full_name, role_id, manager_id,
             dept_id, req.joining_date, req.status, req.office_location,
             req.designation, req.gender, req.date_of_birth, req.marital_status,
             req.nationality, req.passport_number, req.emirates_id_number,
@@ -321,8 +379,17 @@ async def update_employee(conn, user, employee_id: str, req):
             req.personal_email, req.basic_salary, req.hra, req.mobile,
             req.transportation, req.other, req.total_salary, req.flight_ticket,
             req.wps_unique_id, req.wps, req.medical_insurance_category,
-            req.is_active, employee_id
+            req.is_active,
+            req.aadhaar_card_number, req.pan_card_number, req.pf_account_number,
+            req.esi_number, req.bank_account_number, req.ifsc_code,
+            req.emergency_contact_name, req.emergency_contact_number,
+            employee_id
         )
+
+        # Update password if provided
+        if getattr(req, "password", None):
+            pw_hash = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode()
+            await conn.execute("UPDATE users SET password_hash=$1 WHERE id=$2", pw_hash, employee_id)
 
         return {"status": "success", "message": "Employee details updated"}
     except HTTPException:

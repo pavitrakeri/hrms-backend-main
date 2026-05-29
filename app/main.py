@@ -381,10 +381,10 @@ async def resignation_approvals_my(user=Depends(get_current_user)):
     
 
 @app.post("/employees/add", response_model=AddEmployeeResponse, tags=["Employee"])
-async def employees_add(req: AddEmployeeRequest, user=Depends(get_current_user)):
+async def employees_add(req: AddEmployeeRequest, bg: BackgroundTasks, user=Depends(get_current_user)):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
-        return await add_employee(conn, user, req)
+        return await add_employee(conn, user, req, bg)
     
 @app.get("/employees/list", response_model=EmployeeListResponse, tags=["Employee"])
 async def employees_list(department: str = None, role: str = None, active: bool = None, user=Depends(get_current_user)):
