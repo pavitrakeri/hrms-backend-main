@@ -24,9 +24,9 @@ def verify_password(plain: str, hashed: str) -> bool:
     """
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
-def create_access_token(user_id: str, role: str, email: str):
+def create_access_token(user_id: str, role: str, email: str, password_reset_required: bool = False):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": user_id, "role": role, "email": email, "exp": expire}
+    payload = {"sub": user_id, "role": role, "email": email, "exp": expire, "password_reset_required": password_reset_required}
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
     return token, expire
 
@@ -76,7 +76,7 @@ async def reset_password(conn, req):
 
     # 4️⃣ Update password in DB
     await conn.execute(
-        "UPDATE users SET password_hash=$1 WHERE id=$2",
+        "UPDATE users SET password_hash=$1, password_reset_required=false WHERE id=$2",
         pw_hash, user["id"]
     )
 
