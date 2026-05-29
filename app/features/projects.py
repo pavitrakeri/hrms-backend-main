@@ -31,6 +31,17 @@ async def _can_manage_project(conn, user, project_id: str) -> bool:
     return await _is_project_owner(conn, project_id, user["id"])
 
 
+async def _can_view_project(conn, user, project_id: str) -> bool:
+    role = await _get_user_role(conn, user["id"])
+    if _is_admin_or_hr(role):
+        return True
+    row = await conn.fetchrow("""
+        SELECT 1 FROM project_members
+        WHERE project_id = $1 AND user_id = $2
+    """, project_id, user["id"])
+    return row is not None
+
+
 def _format_project_row(row) -> dict:
     return {
         "id": str(row["id"]),
@@ -131,23 +142,40 @@ async def create_project(conn, user, req):
 
 
 async def list_projects(conn, user, include_archived: bool = False):
+    role = await _get_user_role(conn, user["id"])
     status_filter = "" if include_archived else "AND p.status = 'active'"
 
-    rows = await conn.fetch(f"""
-        {_PROJECT_SELECT}
-        FROM projects p
-        JOIN users u ON u.id = p.created_by
-        LEFT JOIN departments d ON d.id = p.department_id
-        LEFT JOIN tasks t ON t.project_id = p.id
-        WHERE 1=1 {status_filter}
-        GROUP BY p.id, u.email, u.full_name, d.name
-        ORDER BY p.updated_at DESC
-    """)
+    if not _is_admin_or_hr(role):
+        rows = await conn.fetch(f"""
+            {_PROJECT_SELECT}
+            FROM projects p
+            JOIN users u ON u.id = p.created_by
+            LEFT JOIN departments d ON d.id = p.department_id
+            LEFT JOIN tasks t ON t.project_id = p.id
+            WHERE 1=1 {status_filter}
+              AND EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = $1)
+            GROUP BY p.id, u.email, u.full_name, d.name
+            ORDER BY p.updated_at DESC
+        """, user["id"])
+    else:
+        rows = await conn.fetch(f"""
+            {_PROJECT_SELECT}
+            FROM projects p
+            JOIN users u ON u.id = p.created_by
+            LEFT JOIN departments d ON d.id = p.department_id
+            LEFT JOIN tasks t ON t.project_id = p.id
+            WHERE 1=1 {status_filter}
+            GROUP BY p.id, u.email, u.full_name, d.name
+            ORDER BY p.updated_at DESC
+        """)
 
     return {"projects": [_format_project_row(r) for r in rows]}
 
 
 async def get_project_detail(conn, user, project_id: str):
+    if not await _can_view_project(conn, user, project_id):
+        raise HTTPException(status_code=403, detail="Not allowed to view this project")
+
     row = await conn.fetchrow(f"""
         {_PROJECT_SELECT}
         FROM projects p
