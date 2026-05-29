@@ -1,6 +1,6 @@
 from fastapi import HTTPException, BackgroundTasks
 from typing import Optional
-from app.features.projects import _get_user_role, _is_admin_or_hr, _is_project_owner
+from app.features.projects import _get_user_role, _is_admin_or_hr, _is_project_owner, _can_view_project
 from app.features.notifications import create_db_notification
 
 VALID_STATUSES = ("todo", "in_progress", "done")
@@ -90,6 +90,8 @@ async def _ensure_project_active(conn, project_id: str):
 
 async def create_task(conn, user, project_id: str, req, bg: Optional[BackgroundTasks] = None):
     await _ensure_project_active(conn, project_id)
+    if not await _can_view_project(conn, user, project_id):
+        raise HTTPException(status_code=403, detail="Not allowed to create tasks for this project")
 
     status = req.status or "todo"
     if status not in VALID_STATUSES:
@@ -127,6 +129,8 @@ async def list_project_tasks(conn, user, project_id: str, status: Optional[str] 
     project = await conn.fetchrow("SELECT id FROM projects WHERE id = $1", project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if not await _can_view_project(conn, user, project_id):
+        raise HTTPException(status_code=403, detail="Not allowed to view tasks for this project")
 
     if status and status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status. Use one of: {VALID_STATUSES}")
@@ -193,6 +197,8 @@ async def get_task(conn, user, task_id: str):
     row = await _get_task_with_context(conn, task_id)
     if not row:
         raise HTTPException(status_code=404, detail="Task not found")
+    if not await _can_view_project(conn, user, str(row["project_id"])):
+        raise HTTPException(status_code=403, detail="Not allowed to view this task")
     return {"task": _format_task_row(row)}
 
 
