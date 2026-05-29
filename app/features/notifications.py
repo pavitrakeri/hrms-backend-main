@@ -4,12 +4,10 @@ import json
 import smtplib
 import urllib.request
 import urllib.parse
-import logging
+import urllib.error
 from email.message import EmailMessage
 from fastapi import BackgroundTasks
 from typing import Dict
-
-logger = logging.getLogger(__name__)
 
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -31,7 +29,6 @@ def _send_email_sync(to_email: str, subject: str, body: str):
     # Check if Microsoft Graph credentials are set
     if MS_CLIENT_ID and MS_CLIENT_SECRET and MS_TENANT_ID:
         try:
-            logger.info("Attempting to send welcome email via Microsoft Graph API to %s", to_email)
             # 1. Get access token from Microsoft Identity Platform
             token_url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token"
             token_data = urllib.parse.urlencode({
@@ -68,7 +65,7 @@ def _send_email_sync(to_email: str, subject: str, body: str):
                         }
                     ]
                 },
-                "saveToSentItems": "false"
+                "saveToSentItems": False
             }
             email_data = json.dumps(email_payload).encode("utf-8")
             email_req = urllib.request.Request(
@@ -82,17 +79,23 @@ def _send_email_sync(to_email: str, subject: str, body: str):
             )
             with urllib.request.urlopen(email_req, timeout=15) as res:
                 if res.status in (200, 202):
-                    logger.info("Email successfully sent via Microsoft Graph API to %s", to_email)
+                    print(f"Email successfully sent via Microsoft Graph API to {to_email}")
                     return True
                 else:
-                    logger.error("Microsoft Graph API email send failed with status: %s", res.status)
+                    print(f"Microsoft Graph API email send failed with status: {res.status}")
                     return False
+        except urllib.error.HTTPError as he:
+            try:
+                err_body = he.read().decode("utf-8")
+                print(f"Microsoft Graph API email send failed: HTTP Error {he.code}: {he.reason}. Response: {err_body}")
+            except Exception:
+                print(f"Microsoft Graph API email send failed: HTTP Error {he.code}: {he.reason}")
+            return False
         except Exception as e:
-            logger.exception("Microsoft Graph API email send failed")
+            print("Microsoft Graph API email send failed:", e)
             return False
 
     # Fallback to standard SMTP
-    logger.info("Microsoft Graph credentials not fully set. Falling back to SMTP for %s", to_email)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = FROM_EMAIL
@@ -103,10 +106,11 @@ def _send_email_sync(to_email: str, subject: str, body: str):
             s.starttls()
             s.login(SMTP_USER, SMTP_PASSWORD)
             s.send_message(msg)
-            logger.info("Email successfully sent via SMTP to %s", to_email)
+            print(f"Email successfully sent via SMTP to {to_email}")
             return True
     except Exception as e:
-        logger.exception("SMTP Email send failed")
+        # In prod, log this instead of printing
+        print("Email send failed:", e)
         return False
 
 def send_email_background(bg: BackgroundTasks, to_email: str, subject: str, body: str):
