@@ -47,6 +47,9 @@ from app.datamodels.role_models import RoleCreateRequest, RoleCreateResponse, Ro
 from app.features.roles import create_role, update_role, delete_role
 from app.features.roles_list import list_roles
 
+from app.datamodels.settings import UpdateProfileRequest, ChangePasswordRequest, CompanySettingsRequest, CompanySettingsResponse
+from app.features.settings import get_my_profile, update_my_profile, change_my_password, get_company_settings, update_company_settings
+
 from pydantic import BaseModel
 from datetime import datetime, timezone, date
 from fastapi.middleware.cors import CORSMiddleware
@@ -609,6 +612,54 @@ async def reset_password_api(req: ResetPasswordRequest):
     async with db_pool.acquire() as conn:
         return await reset_password(conn, req)
 
+# --- Settings & Profile Endpoints ---
+
+@app.get("/profile/me", tags=["Settings"])
+async def get_my_profile_api(user=Depends(get_current_user)):
+    """
+    Get detailed profile of currently logged-in user.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await get_my_profile(conn, user)
+
+@app.put("/profile/me", tags=["Settings"])
+async def update_my_profile_api(req: UpdateProfileRequest, user=Depends(get_current_user)):
+    """
+    Update personal/contact information of currently logged-in user.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await update_my_profile(conn, user, req)
+
+@app.post("/profile/change-password", tags=["Settings"])
+async def change_my_password_api(req: ChangePasswordRequest, user=Depends(get_current_user)):
+    """
+    Change password of currently logged-in user.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await change_my_password(conn, user, req)
+
+@app.get("/settings/company", response_model=CompanySettingsResponse, tags=["Settings"])
+async def get_company_settings_api(user=Depends(get_current_user)):
+    """
+    Get global company settings.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await get_company_settings(conn)
+
+@app.put("/settings/company", tags=["Settings"])
+async def update_company_settings_api(req: CompanySettingsRequest, user=Depends(get_current_user)):
+    """
+    Update global company settings. (Admin/HR only)
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await update_company_settings(conn, user, req)
+
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT env var
     uvicorn.run(app, host="0.0.0.0", port=port)
