@@ -27,7 +27,7 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
 
         # Resolve manager
         manager_id = None
-        if req.manager_email:
+        if req.manager_email and str(req.manager_email).strip():
             manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
             if not manager:
                 raise HTTPException(status_code=400, detail="Manager not found")
@@ -35,7 +35,7 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
 
         # Resolve HR
         hr_id = None
-        if req.hr_email:
+        if req.hr_email and str(req.hr_email).strip():
             hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
             if not hr:
                 raise HTTPException(status_code=400, detail="HR not found")
@@ -51,6 +51,14 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
                     VALUES (gen_random_uuid(), $1, $2, $3)
                     RETURNING id, name
                 """, req.department, manager_id, hr_id)
+            else:
+                # Update existing department's hr_id and manager_id if they are provided
+                await conn.execute("""
+                    UPDATE departments
+                    SET manager_id = COALESCE($1, manager_id),
+                        hr_id = COALESCE($2, hr_id)
+                    WHERE id = $3
+                """, manager_id, hr_id, dept["id"])
             dept_id = dept["id"]
 
         # Hash password
@@ -231,7 +239,9 @@ async def get_employee_details(conn, user, employee_id: str):
         SELECT 
             u.id, u.email, u.full_name, r.name as role, 
             COALESCE(d.name, 'Unassigned') as department, 
-            m.email as manager_email, u.is_active, u.created_at,
+            m.email as manager_email, 
+            h.email as hr_email,
+            u.is_active, u.created_at,
             u.status, u.office_location, u.designation,
             u.gender, u.date_of_birth, u.marital_status, u.nationality,
             u.passport_number, u.emirates_id_number, u.uid_number, u.file_number,
@@ -247,6 +257,7 @@ async def get_employee_details(conn, user, employee_id: str):
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN departments d ON u.department_id = d.id
         LEFT JOIN users m ON u.manager_id = m.id
+        LEFT JOIN users h ON d.hr_id = h.id
         WHERE u.id=$1
     """, employee_id)
 
@@ -261,6 +272,7 @@ async def get_employee_details(conn, user, employee_id: str):
         "role": row["role"],
         "department": row["department"],
         "manager_email": row["manager_email"],
+        "hr_email": row["hr_email"],
         "is_active": row["is_active"],
         "created_at": row["created_at"].isoformat(),
         "status": row["status"],
@@ -326,7 +338,7 @@ async def update_employee(conn, user, employee_id: str, req):
 
         # Resolve manager
         manager_id = None
-        if req.manager_email:
+        if req.manager_email and str(req.manager_email).strip():
             manager = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.manager_email)
             if not manager:
                 raise HTTPException(status_code=400, detail="Manager not found")
@@ -334,7 +346,7 @@ async def update_employee(conn, user, employee_id: str, req):
 
         # Resolve HR
         hr_id = None
-        if req.hr_email:
+        if req.hr_email and str(req.hr_email).strip():
             hr = await conn.fetchrow("SELECT id FROM users WHERE email=$1", req.hr_email)
             if not hr:
                 raise HTTPException(status_code=400, detail="HR not found")
@@ -350,6 +362,14 @@ async def update_employee(conn, user, employee_id: str, req):
                     VALUES (gen_random_uuid(), $1, $2, $3)
                     RETURNING id, name
                 """, req.department, manager_id, hr_id)
+            else:
+                # Update existing department's hr_id and manager_id if they are provided
+                await conn.execute("""
+                    UPDATE departments
+                    SET manager_id = COALESCE($1, manager_id),
+                        hr_id = COALESCE($2, hr_id)
+                    WHERE id = $3
+                """, manager_id, hr_id, dept["id"])
             dept_id = dept["id"]
 
         # Update query

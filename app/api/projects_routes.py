@@ -64,6 +64,13 @@ async def archive_project(project_id: str, user=Depends(get_current_user)):
         return await projects_service.archive_project(conn, user, project_id)
 
 
+@router.delete("/projects/{project_id}")
+async def delete_project(project_id: str, user=Depends(get_current_user)):
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await projects_service.delete_project(conn, user, project_id)
+
+
 @router.post("/projects/{project_id}/tasks", response_model=TaskCreateResponse)
 async def create_task(
     project_id: str,

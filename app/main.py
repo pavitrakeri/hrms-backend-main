@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Form, Uplo
 from fastapi.responses import JSONResponse
 import uvicorn
 import logging
+from fastapi.exceptions import RequestValidationError
 # Added new endpoints: GET /departments/list, GET /roles/list
 from .db import init_db, close_db, get_db_pool
 from .features.auth import LoginRequest, TokenResponse, verify_password, create_access_token, get_current_user
@@ -80,12 +81,39 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    status_code = 500
+    detail = "Internal server error"
+    message = str(exc)
     if isinstance(exc, HTTPException):
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    logging.exception("Unhandled error on %s %s", request.method, request.url.path)
+        status_code = exc.status_code
+        detail = exc.detail
+        message = None
+    else:
+        logging.exception("Unhandled error on %s %s", request.method, request.url.path)
+        
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+    content = {"detail": detail}
+    if message:
+        content["message"] = message
+    return JSONResponse(status_code=status_code, content=content, headers=headers)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
     return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error", "message": str(exc)},
+        status_code=422,
+        content={"detail": exc.errors()},
+        headers=headers
     )
 
 
@@ -135,11 +163,15 @@ async def clockin(req: ClockInRequest, user=Depends(get_current_user)):
     async with db_pool.acquire() as conn:
         # check if already clocked in today
         existing = await conn.fetchrow("""
-            SELECT id FROM attendance
-            WHERE user_id=$1 AND date_trunc('day', clock_in_at) = date_trunc('day', now())
+            SELECT id, clock_out_at FROM attendance
+            WHERE user_id=$1 AND (clock_in_at AT TIME ZONE 'UTC' + interval '5 hours 30 minutes')::date = CURRENT_DATE
+            ORDER BY clock_in_at DESC LIMIT 1
         """, user["id"])
         if existing:
-            return {"message": "Already clocked in today"}
+            if existing["clock_out_at"] is not None:
+                raise HTTPException(status_code=400, detail="Already clocked out today")
+            else:
+                raise HTTPException(status_code=400, detail="Already clocked in today")
 
         # reverse geocode lat/lon to address
         location = await reverse_geocode(req.lat, req.lon)
@@ -202,10 +234,10 @@ async def clockout(req: ClockOutRequest, user=Depends(get_current_user)):
             """, user["id"])
 
             if not record:
-                return {"status": "fail", "message": "No clock-in found for today"}
+                raise HTTPException(status_code=400, detail="No clock-in found for today")
 
             if record["clock_out_at"] is not None:
-                return {"status": "fail", "message": "Already clocked out today"}
+                raise HTTPException(status_code=400, detail="Already clocked out today")
 
             # calculate total time
             clock_in_time = record["clock_in_at"]
@@ -660,6 +692,40 @@ async def update_company_settings_api(req: CompanySettingsRequest, user=Depends(
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return await update_company_settings(conn, user, req)
+
+class LeaveTypeCreateRequest(BaseModel):
+    name: str
+    default_days: int
+
+@app.get("/settings/leave-types", tags=["Settings"])
+async def get_leave_types_api(user=Depends(get_current_user)):
+    """
+    Get all leave types.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id, name, default_days FROM leave_types ORDER BY id")
+        return [{"id": r["id"], "name": r["name"], "default_days": r["default_days"]} for r in rows]
+
+@app.post("/settings/leave-types", tags=["Settings"])
+async def create_leave_type_api(req: LeaveTypeCreateRequest, user=Depends(get_current_user)):
+    """
+    Create a new leave type. (Admin/HR only)
+    """
+    if user["role"] not in ("admin", "hr"):
+        raise HTTPException(status_code=403, detail="Only HR or Admin can add leave types")
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        try:
+            await conn.execute(
+                "INSERT INTO leave_types (name, default_days) VALUES ($1, $2)",
+                req.name.strip().lower(), req.default_days
+            )
+        except Exception as e:
+            if "unique" in str(e).lower():
+                raise HTTPException(status_code=400, detail="Leave type already exists")
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "message": "Leave type created successfully"}
 
 # --- Dashboard Summary Endpoint ---
 

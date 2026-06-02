@@ -138,13 +138,27 @@ async def apply_leave_with_upload(
             raise HTTPException(status_code=400, detail="Invalid leave type")
 
         lt_name = leave_type["name"].lower()
-        if lt_name not in LEAVE_WORKFLOWS:
-            raise HTTPException(status_code=400, detail=f"No workflow for {lt_name}")
+        workflow = LEAVE_WORKFLOWS.get(lt_name, ["manager", "hr"])
 
         # --- Fetch applicant ---
         applicant = await _get_user_with_employment(conn, user["id"])
         if not applicant:
             raise HTTPException(status_code=400, detail="Applicant not found")
+
+        # --- Check overlapping leaves ---
+        overlap = await conn.fetchrow("""
+            SELECT id, start_date, end_date FROM leaves
+            WHERE user_id = $1
+              AND status IN ('pending', 'approved')
+              AND start_date <= $3
+              AND end_date >= $2
+            LIMIT 1
+        """, user["id"], start_date, end_date)
+        if overlap:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You already have an approved or pending leave that overlaps with this period ({overlap['start_date']} to {overlap['end_date']})."
+            )
 
         # --- Calculate requested days ---
         days_requested = _requested_leave_days(start_date, end_date, half_day, half_day_slot)
@@ -196,7 +210,7 @@ async def apply_leave_with_upload(
             leave_id = str(leave_row["id"])
 
             # Approvers workflow
-            approvers = await _resolve_approvers_for_user(conn, applicant, LEAVE_WORKFLOWS[lt_name])
+            approvers = await _resolve_approvers_for_user(conn, applicant, workflow)
 
             for ap in approvers:
                 await conn.execute("""
@@ -502,10 +516,20 @@ async def cancel_leave(conn, user, leave_id: str, bg: BackgroundTasks):
         if str(leave["user_id"]) != str(user["id"]):
             raise HTTPException(status_code=403, detail="You cannot cancel this leave")
 
-        if leave["status"] not in ("pending"):
+        if leave["status"] not in ("pending", "approved"):
             raise HTTPException(status_code=400, detail=f"Cannot cancel a {leave['status']} leave")
 
         async with conn.transaction():
+            # If approved, credit back the balance
+            if leave["status"] == "approved":
+                lr = await conn.fetchrow("""
+                    SELECT user_id, leave_type_id, start_date, end_date, half_day, half_day_slot
+                    FROM leaves WHERE id=$1
+                """, leave_id)
+                if lr:
+                    used_days = _requested_leave_days(lr["start_date"], lr["end_date"], lr["half_day"], lr["half_day_slot"])
+                    await _increment_used_days(conn, str(lr["user_id"]), int(lr["leave_type_id"]), -used_days)
+
             # update leave + approvals
             await conn.execute("UPDATE leaves SET status='cancelled' WHERE id=$1", leave_id)
             await conn.execute("UPDATE leave_approvals SET decision='cancelled', decided_at=now() WHERE leave_id=$1", leave_id)

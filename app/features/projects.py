@@ -285,3 +285,15 @@ async def archive_project(conn, user, project_id: str):
         raise HTTPException(status_code=404, detail="Project not found or already archived")
 
     return {"status": "success", "message": "Project archived"}
+
+
+async def delete_project(conn, user, project_id: str):
+    if not await _can_manage_project(conn, user, project_id):
+        raise HTTPException(status_code=403, detail="Not allowed to delete this project")
+
+    result = await conn.execute("DELETE FROM projects WHERE id = $1", project_id)
+
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return {"status": "success", "message": "Project deleted successfully"}
