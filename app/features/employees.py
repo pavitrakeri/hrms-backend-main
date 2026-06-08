@@ -81,7 +81,7 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
                     aadhaar_card_number, pan_card_number, pf_account_number,
                     esi_number, bank_account_number, ifsc_code,
                     emergency_contact_name, emergency_contact_number,
-                    password_reset_required
+                    password_reset_required, employment_status
                 )
                 VALUES (
                     gen_random_uuid(), $1, $2, $3, $4,
@@ -97,7 +97,7 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
                     $34, $35, $36,
                     $37, $38, $39, $40, $41, $42,
                     $43, $44,
-                    true
+                    true, $45
                 )
                 RETURNING id
             """,
@@ -114,7 +114,8 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
             req.wps_unique_id, req.wps, req.medical_insurance_category,  # $34–$36
             req.aadhaar_card_number, req.pan_card_number, req.pf_account_number,  # $37-$39
             req.esi_number, req.bank_account_number, req.ifsc_code,  # $40-$42
-            req.emergency_contact_name, req.emergency_contact_number  # $43-$44
+            req.emergency_contact_name, req.emergency_contact_number,  # $43-$44
+            req.employment_status  # $45
             )
 
         # Send welcome email notification
@@ -241,7 +242,7 @@ async def get_employee_details(conn, user, employee_id: str):
             COALESCE(d.name, 'Unassigned') as department, 
             m.email as manager_email, 
             h.email as hr_email,
-            u.is_active, u.created_at, u.joining_date,
+            u.is_active, u.created_at, u.joining_date, u.employment_status,
             u.status, u.office_location, u.designation,
             u.gender, u.date_of_birth, u.marital_status, u.nationality,
             u.passport_number, u.emirates_id_number, u.uid_number, u.file_number,
@@ -276,6 +277,7 @@ async def get_employee_details(conn, user, employee_id: str):
         "is_active": row["is_active"],
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "joining_date": row["joining_date"].isoformat() if row["joining_date"] else None,
+        "employment_status": row["employment_status"],
         "status": row["status"],
         "office_location": row["office_location"],
         "designation": row["designation"],
@@ -389,8 +391,9 @@ async def update_employee(conn, user, employee_id: str, req):
                 is_active=$36,
                 aadhaar_card_number=$37, pan_card_number=$38, pf_account_number=$39,
                 esi_number=$40, bank_account_number=$41, ifsc_code=$42,
-                emergency_contact_name=$43, emergency_contact_number=$44
-            WHERE id=$45
+                emergency_contact_name=$43, emergency_contact_number=$44,
+                employment_status=$45
+            WHERE id=$46
         """,
             req.email, req.full_name, role_id, manager_id,
             dept_id, req.joining_date, req.status, req.office_location,
@@ -406,6 +409,7 @@ async def update_employee(conn, user, employee_id: str, req):
             req.aadhaar_card_number, req.pan_card_number, req.pf_account_number,
             req.esi_number, req.bank_account_number, req.ifsc_code,
             req.emergency_contact_name, req.emergency_contact_number,
+            req.employment_status,
             employee_id
         )
 
