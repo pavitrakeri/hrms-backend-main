@@ -160,7 +160,7 @@ async def get_company_settings(conn):
         "office_start_time": start_time,
         "office_end_time": end_time,
         "weekend_days": row["weekend_days"],
-        "currency": row["currency"]
+        "currency": row["currency"] if row["currency"] != "AED" else ""
     }
 
 async def update_company_settings(conn, user: Dict[str, Any], req):
