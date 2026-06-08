@@ -49,7 +49,7 @@ async def initiate_payroll(conn, user, req):
 
     return {
         "status": "success",
-        "message": f"Payroll initiated for {emp['full_name']} (Monthly: {gross_monthly} AED)",
+        "message": f"Payroll initiated for {emp['full_name']} (Monthly: {gross_monthly})",
         "payroll_id": str(row["id"])
     }
 

@@ -143,7 +143,7 @@ async def apply_reimbursement(conn, user, category: str, subcategory: Optional[s
                 if bg:
                     # send email to approver
                     subject = f"Reimbursement request from {user['email']}"
-                    body = f"User {user['email']} submitted a reimbursement of AED {amount} for {category}. Reimbursement ID: {reimbursement_id}"
+                    body = f"User {user['email']} submitted a reimbursement of {amount} for {category}. Reimbursement ID: {reimbursement_id}"
                     send_email_background(bg, approver_row["email"], subject, body)
             else:
                 # if an approver for that role can't be resolved we continue; omission means that step is skipped

@@ -148,7 +148,7 @@ async def get_company_settings(conn):
             "office_start_time": "09:00:00",
             "office_end_time": "18:00:00",
             "weekend_days": "Saturday,Sunday",
-            "currency": "AED"
+            "currency": ""
         }
     
     # Format TIME objects to strings (HH:MM:SS) if they are datetime.time objects
