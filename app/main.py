@@ -180,19 +180,19 @@ async def clockin(req: ClockInRequest, user=Depends(get_current_user)):
             if existing:
                 raise HTTPException(status_code=400, detail="Already clocked in/out for today")
 
-        # reverse geocode lat/lon to address
-        location = await reverse_geocode(req.lat, req.lon)
+            # reverse geocode lat/lon to address
+            location = await reverse_geocode(req.lat, req.lon)
 
-        # insert attendance with location data
-        await conn.execute("""
-            INSERT INTO attendance (id, user_id, clock_in_at, lat, lon, location)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
-        """, user["id"], datetime.utcnow(), req.lat, req.lon, location)
+            # insert attendance with location data
+            await conn.execute("""
+                INSERT INTO attendance (id, user_id, clock_in_at, lat, lon, location)
+                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+            """, user["id"], datetime.utcnow(), req.lat, req.lon, location)
 
-        return {
-            "message": "Clock-in successful",
-            "user": user["email"]
-        }
+            return {
+                "message": "Clock-in successful",
+                "user": user["email"]
+            }
     except HTTPException as he:
         raise he
     except Exception as e:
