@@ -159,19 +159,26 @@ async def login(req: LoginRequest):
 
 @app.post("/attendance/clockin", tags=["Attendance"])
 async def clockin(req: ClockInRequest, user=Depends(get_current_user)):
-    db_pool = get_db_pool()
-    async with db_pool.acquire() as conn:
-        # check if already clocked in today
-        existing = await conn.fetchrow("""
-            SELECT id, clock_out_at FROM attendance
-            WHERE user_id=$1 AND (clock_in_at AT TIME ZONE 'UTC' + interval '5 hours 30 minutes')::date = CURRENT_DATE
-            ORDER BY clock_in_at DESC LIMIT 1
-        """, user["id"])
-        if existing:
-            if existing["clock_out_at"] is not None:
-                raise HTTPException(status_code=400, detail="Already clocked out today")
-            else:
-                raise HTTPException(status_code=400, detail="Already clocked in today")
+    try:
+        db_pool = get_db_pool()
+        async with db_pool.acquire() as conn:
+            # check if there's any open session globally
+            latest = await conn.fetchrow("""
+                SELECT id, clock_out_at FROM attendance
+                WHERE user_id=$1
+                ORDER BY clock_in_at DESC LIMIT 1
+            """, user["id"])
+            if latest and latest["clock_out_at"] is None:
+                raise HTTPException(status_code=400, detail="You have an open session. Please clock out first.")
+
+            # check if already clocked in today
+            existing = await conn.fetchrow("""
+                SELECT id, clock_out_at FROM attendance
+                WHERE user_id=$1 AND (clock_in_at AT TIME ZONE 'UTC' + interval '5 hours 30 minutes')::date = CURRENT_DATE
+                ORDER BY clock_in_at DESC LIMIT 1
+            """, user["id"])
+            if existing:
+                raise HTTPException(status_code=400, detail="Already clocked in/out for today")
 
         # reverse geocode lat/lon to address
         location = await reverse_geocode(req.lat, req.lon)
@@ -182,10 +189,14 @@ async def clockin(req: ClockInRequest, user=Depends(get_current_user)):
             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
         """, user["id"], datetime.utcnow(), req.lat, req.lon, location)
 
-    return {
-        "message": "Clock-in successful",
-        "user": user["email"]
-    }
+        return {
+            "message": "Clock-in successful",
+            "user": user["email"]
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Clock-in failed: {str(e)}")
 
 @app.get("/attendance/my-location", tags=["Attendance"])
 async def get_my_location(user=Depends(get_current_user)):
@@ -223,21 +234,20 @@ async def clockout(req: ClockOutRequest, user=Depends(get_current_user)):
     try:
         db_pool = get_db_pool()
         async with db_pool.acquire() as conn:
-            # find today's clock-in
+            # find the latest clock-in
             record = await conn.fetchrow("""
                 SELECT id, clock_in_at, clock_out_at
                 FROM attendance
                 WHERE user_id=$1
-                AND (clock_in_at AT TIME ZONE 'UTC' + interval '5 hours 30 minutes')::date = CURRENT_DATE
                 ORDER BY clock_in_at DESC
                 LIMIT 1
             """, user["id"])
 
             if not record:
-                raise HTTPException(status_code=400, detail="No clock-in found for today")
+                raise HTTPException(status_code=400, detail="No clock-in record found")
 
             if record["clock_out_at"] is not None:
-                raise HTTPException(status_code=400, detail="Already clocked out today")
+                raise HTTPException(status_code=400, detail="Latest session is already clocked out")
 
             # calculate total time
             clock_in_time = record["clock_in_at"]
@@ -260,6 +270,8 @@ async def clockout(req: ClockOutRequest, user=Depends(get_current_user)):
             "total_seconds": total_seconds
         }
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Clock-out failed: {str(e)}")
 
