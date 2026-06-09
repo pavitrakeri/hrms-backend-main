@@ -135,6 +135,12 @@ async def update_task_status(
         return await tasks_service.update_task_status(conn, user, task_id, req.status, bg)
 
 
+@router.post("/tasks/{task_id}/timer", response_model=TaskDetailResponse)
+async def toggle_task_timer(task_id: str, user=Depends(get_current_user)):
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await tasks_service.toggle_task_timer(conn, user, task_id)
+
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, user=Depends(get_current_user)):
     db_pool = get_db_pool()

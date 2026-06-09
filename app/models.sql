@@ -647,3 +647,5 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+A L T E R   T A B L E   t a s k s   A D D   C O L U M N   I F   N O T   E X I S T S   s t a r t _ d a t e   D A T E ,   A D D   C O L U M N   I F   N O T   E X I S T S   t i m e r _ s t a r t e d _ a t   T I M E S T A M P T Z ,   A D D   C O L U M N   I F   N O T   E X I S T S   t i m e _ s p e n t _ s e c o n d s   I N T   D E F A U L T   0 ;  
+ 

@@ -18,9 +18,12 @@ def _format_task_row(row) -> dict:
         "assignee_name": row.get("assignee_name"),
         "created_by": str(row["created_by"]),
         "creator_email": row.get("creator_email"),
-        "creator_name": row.get("creator_name"),
+        "created_name": row.get("creator_name"),
+        "start_date": row["start_date"].isoformat() if row.get("start_date") else None,
         "due_date": row["due_date"].isoformat() if row.get("due_date") else None,
         "status": row["status"],
+        "timer_started_at": row["timer_started_at"].isoformat() if row.get("timer_started_at") else None,
+        "time_spent_seconds": int(row.get("time_spent_seconds") or 0),
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
@@ -30,7 +33,9 @@ async def _get_task_with_context(conn, task_id: str):
     row = await conn.fetchrow("""
         SELECT
             t.id, t.project_id, t.title, t.description, t.assignee_id,
-            t.created_by, t.due_date, t.status, t.created_at, t.updated_at,
+            t.created_by, t.start_date, t.due_date, t.status, 
+            t.timer_started_at, t.time_spent_seconds,
+            t.created_at, t.updated_at,
             p.name AS project_name,
             au.email AS assignee_email,
             au.full_name AS assignee_name,
@@ -107,11 +112,11 @@ async def create_task(conn, user, project_id: str, req, bg: Optional[BackgroundT
 
     row = await conn.fetchrow("""
         INSERT INTO tasks (
-            id, project_id, title, description, assignee_id, created_by, due_date, status
+            id, project_id, title, description, assignee_id, created_by, start_date, due_date, status
         )
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
-    """, project_id, req.title, req.description, assignee_id, user["id"], req.due_date, status)
+    """, project_id, req.title, req.description, assignee_id, user["id"], req.start_date, req.due_date, status)
 
     task_id = str(row["id"])
 
@@ -138,7 +143,9 @@ async def list_project_tasks(conn, user, project_id: str, status: Optional[str] 
     query = """
         SELECT
             t.id, t.project_id, t.title, t.description, t.assignee_id,
-            t.created_by, t.due_date, t.status, t.created_at, t.updated_at,
+            t.created_by, t.start_date, t.due_date, t.status,
+            t.timer_started_at, t.time_spent_seconds,
+            t.created_at, t.updated_at,
             p.name AS project_name,
             au.email AS assignee_email,
             au.full_name AS assignee_name,
@@ -169,7 +176,9 @@ async def get_my_tasks(conn, user, status: Optional[str] = None):
     query = """
         SELECT
             t.id, t.project_id, t.title, t.description, t.assignee_id,
-            t.created_by, t.due_date, t.status, t.created_at, t.updated_at,
+            t.created_by, t.start_date, t.due_date, t.status,
+            t.timer_started_at, t.time_spent_seconds,
+            t.created_at, t.updated_at,
             p.name AS project_name,
             au.email AS assignee_email,
             au.full_name AS assignee_name,
@@ -230,6 +239,7 @@ async def update_task(conn, user, task_id: str, req, bg: Optional[BackgroundTask
         ("title", req.title),
         ("description", req.description),
         ("assignee_id", req.assignee_id),
+        ("start_date", req.start_date),
         ("due_date", req.due_date),
         ("status", req.status),
     ]:
@@ -259,6 +269,38 @@ async def update_task(conn, user, task_id: str, req, bg: Optional[BackgroundTask
 async def update_task_status(conn, user, task_id: str, status: str, bg: Optional[BackgroundTasks] = None):
     from app.datamodels.project_models import TaskUpdateRequest
     return await update_task(conn, user, task_id, TaskUpdateRequest(status=status), bg)
+
+
+async def toggle_task_timer(conn, user, task_id: str):
+    row = await _get_task_with_context(conn, task_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not await _can_edit_task(conn, user, row):
+        raise HTTPException(status_code=403, detail="Not allowed to update this task")
+
+    from datetime import datetime, timezone
+
+    if row["timer_started_at"] is None:
+        # Start the timer
+        await conn.execute("""
+            UPDATE tasks SET timer_started_at = $1, updated_at = now()
+            WHERE id = $2
+        """, datetime.now(timezone.utc), task_id)
+    else:
+        # Stop the timer
+        started_at = row["timer_started_at"]
+        now = datetime.now(timezone.utc)
+        elapsed = int((now - started_at).total_seconds())
+        await conn.execute("""
+            UPDATE tasks SET 
+                time_spent_seconds = COALESCE(time_spent_seconds, 0) + $1,
+                timer_started_at = NULL,
+                updated_at = now()
+            WHERE id = $2
+        """, elapsed, task_id)
+
+    return await get_task(conn, user, task_id)
 
 
 async def delete_task(conn, user, task_id: str):

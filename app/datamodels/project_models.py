@@ -65,6 +65,7 @@ class TaskCreateRequest(BaseModel):
     title: str
     description: Optional[str] = None
     assignee_id: Optional[str] = None
+    start_date: Optional[date] = None
     due_date: Optional[date] = None
     status: Optional[str] = "todo"
 
@@ -73,6 +74,7 @@ class TaskUpdateRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     assignee_id: Optional[str] = None
+    start_date: Optional[date] = None
     due_date: Optional[date] = None
     status: Optional[str] = None
 
@@ -93,8 +95,11 @@ class TaskRow(BaseModel):
     created_by: str
     creator_email: Optional[str] = None
     creator_name: Optional[str] = None
+    start_date: Optional[str] = None
     due_date: Optional[str] = None
     status: str
+    timer_started_at: Optional[str] = None
+    time_spent_seconds: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
