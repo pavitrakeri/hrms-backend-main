@@ -7,27 +7,21 @@ async def create_role(conn, user, req):
     """
 
     # ✅ 1. Check permission
-    role = await conn.fetchval("""
-        SELECT r.name
-        FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id = $1
-    """, user["id"])
-
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Only Admin or HR can create roles")
+    from app.utils.permissions import require_permission, MANAGE_ROLES
+    require_permission(user, MANAGE_ROLES)
 
     # ✅ 2. Check if role already exists
     existing = await conn.fetchrow("SELECT id FROM roles WHERE LOWER(name) = LOWER($1)", req.name)
     if existing:
         raise HTTPException(status_code=400, detail=f"Role '{req.name}' already exists")
 
+    import json
     # ✅ 3. Insert new role
     row = await conn.fetchrow("""
-        INSERT INTO roles (id, name, description)
-        VALUES (gen_random_uuid(), $1, $2)
+        INSERT INTO roles (id, name, description, permissions)
+        VALUES (gen_random_uuid(), $1, $2, $3::jsonb)
         RETURNING id
-    """, req.name, req.description)
+    """, req.name, req.description, json.dumps(req.permissions))
 
     return {
         "status": "success",
@@ -43,15 +37,8 @@ async def update_role(conn, user, req):
     """
 
     # ✅ 1. Check permission
-    role = await conn.fetchval("""
-        SELECT r.name
-        FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id = $1
-    """, user["id"])
-
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Only Admin or HR can update roles")
+    from app.utils.permissions import require_permission, MANAGE_ROLES
+    require_permission(user, MANAGE_ROLES)
 
     # ✅ 2. Check if role exists
     role_row = await conn.fetchrow("SELECT * FROM roles WHERE id=$1", req.role_id)
@@ -60,9 +47,11 @@ async def update_role(conn, user, req):
 
     fields_set = getattr(req, "model_fields_set", getattr(req, "__fields_set__", None))
 
-    # ✅ 3. Resolve fields
     name = req.name if (fields_set and "name" in fields_set and req.name is not None) else role_row["name"]
     description = req.description if (fields_set and "description" in fields_set) else role_row["description"]
+    
+    import json
+    permissions_str = json.dumps(req.permissions) if (fields_set and "permissions" in fields_set and req.permissions is not None) else role_row["permissions"]
 
     # ✅ 4. Check name uniqueness if changed
     if name.lower() != role_row["name"].lower():
@@ -73,9 +62,9 @@ async def update_role(conn, user, req):
     # ✅ 5. Update Role
     await conn.execute("""
         UPDATE roles
-        SET name = $1, description = $2
-        WHERE id = $3
-    """, name, description, req.role_id)
+        SET name = $1, description = $2, permissions = $3::jsonb
+        WHERE id = $4
+    """, name, description, permissions_str, req.role_id)
 
     return {
         "status": "success",
@@ -91,15 +80,8 @@ async def delete_role(conn, user, role_id: str):
     """
 
     # ✅ 1. Check permission
-    role = await conn.fetchval("""
-        SELECT r.name
-        FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id = $1
-    """, user["id"])
-
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Only Admin or HR can delete roles")
+    from app.utils.permissions import require_permission, MANAGE_ROLES
+    require_permission(user, MANAGE_ROLES)
 
     # ✅ 2. Check if role exists
     role_row = await conn.fetchrow("SELECT name FROM roles WHERE id=$1", role_id)

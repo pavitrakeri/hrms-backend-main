@@ -136,7 +136,7 @@ async def login(req: LoginRequest):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT u.id, u.email, u.password_hash, r.name as role, u.password_reset_required
+            SELECT u.id, u.email, u.password_hash, r.name as role, u.password_reset_required, r.permissions
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.id
             WHERE u.email=$1 AND u.is_active=true
@@ -149,11 +149,23 @@ async def login(req: LoginRequest):
 
     reset_req = bool(row["password_reset_required"]) if row["password_reset_required"] is not None else False
     token, expiry = create_access_token(str(row["id"]), row["role"], row["email"], reset_req)
+    import json
+    permissions = []
+    if row["permissions"]:
+        if isinstance(row["permissions"], str):
+            try:
+                permissions = json.loads(row["permissions"])
+            except:
+                pass
+        else:
+            permissions = row["permissions"]
+
     return {
         "access_token": token,
         "expires_at": expiry,
         "role": row["role"],
-        "password_reset_required": reset_req
+        "password_reset_required": reset_req,
+        "permissions": permissions
     }
 
 

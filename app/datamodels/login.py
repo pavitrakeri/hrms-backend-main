@@ -12,3 +12,4 @@ class TokenResponse(BaseModel):
     expires_at: datetime
     role: str
     password_reset_required: bool = False
+    permissions: list[str] = []

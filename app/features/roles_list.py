@@ -7,27 +7,35 @@ async def list_roles(conn, user):
     """
     
     # Check permission
-    role = await conn.fetchval("""
-        SELECT r.name FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id=$1
-    """, user["id"])
-
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Not authorized to view roles")
+    from app.utils.permissions import require_permission, MANAGE_ROLES
+    require_permission(user, MANAGE_ROLES)
 
     # Fetch all roles
     rows = await conn.fetch("""
-        SELECT id, name, description
+        SELECT id, name, description, permissions
         FROM roles
         ORDER BY name ASC
     """)
-
-    return [
-        {
+    
+    import json
+    
+    result = []
+    for row in rows:
+        permissions = []
+        if row["permissions"]:
+            if isinstance(row["permissions"], str):
+                try:
+                    permissions = json.loads(row["permissions"])
+                except:
+                    pass
+            else:
+                permissions = row["permissions"]
+                
+        result.append({
             "id": str(row["id"]),
             "name": row["name"],
-            "description": row["description"]
-        }
-        for row in rows
-    ]
+            "description": row["description"],
+            "permissions": permissions
+        })
+
+    return result

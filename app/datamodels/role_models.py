@@ -4,6 +4,7 @@ from typing import Optional
 class RoleCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
+    permissions: list[str] = []
 
 class RoleCreateResponse(BaseModel):
     status: str
@@ -14,6 +15,7 @@ class RoleUpdateRequest(BaseModel):
     role_id: str
     name: Optional[str] = None
     description: Optional[str] = None
+    permissions: Optional[list[str]] = None
 
 class RoleUpdateResponse(BaseModel):
     status: str

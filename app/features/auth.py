@@ -46,7 +46,7 @@ async def get_current_user(
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT u.id, u.email, r.name as role
+            SELECT u.id, u.email, r.name as role, r.permissions
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.id
             WHERE u.id=$1 AND u.is_active=true
@@ -55,7 +55,20 @@ async def get_current_user(
     if not row:
         raise HTTPException(status_code=401, detail="User not found")
 
-    return {"id": str(row["id"]), "email": row["email"], "role": row["role"]}
+    import json
+    
+    permissions = []
+    if row["permissions"]:
+        if isinstance(row["permissions"], str):
+            try:
+                permissions = json.loads(row["permissions"])
+            except:
+                pass
+        else:
+            # asyncpg might return a string or list for jsonb depending on decoding
+            permissions = row["permissions"]
+
+    return {"id": str(row["id"]), "email": row["email"], "role": row["role"], "permissions": permissions}
 
 
 async def reset_password(conn, req):
