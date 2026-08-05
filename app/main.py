@@ -147,8 +147,6 @@ async def login(req: LoginRequest):
     if not verify_password(req.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    reset_req = bool(row["password_reset_required"]) if row["password_reset_required"] is not None else False
-    token, expiry = create_access_token(str(row["id"]), row["role"], row["email"], reset_req)
     import json
     permissions = []
     if row["permissions"]:
@@ -160,6 +158,8 @@ async def login(req: LoginRequest):
         else:
             permissions = row["permissions"]
 
+    reset_req = bool(row["password_reset_required"]) if row["password_reset_required"] is not None else False
+    token, expiry = create_access_token(str(row["id"]), row["role"], row["email"], reset_req, permissions)
     return {
         "access_token": token,
         "expires_at": expiry,

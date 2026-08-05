@@ -24,9 +24,9 @@ def verify_password(plain: str, hashed: str) -> bool:
     """
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
-def create_access_token(user_id: str, role: str, email: str, password_reset_required: bool = False):
+def create_access_token(user_id: str, role: str, email: str, password_reset_required: bool = False, permissions: list = None):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": user_id, "role": role, "email": email, "exp": expire, "password_reset_required": password_reset_required}
+    payload = {"sub": user_id, "role": role, "email": email, "exp": expire, "password_reset_required": password_reset_required, "permissions": permissions or []}
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
     return token, expire
 
