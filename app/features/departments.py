@@ -8,14 +8,8 @@ async def create_department(conn, user, req):
     Only Admin or HR can perform this action
     """
     # check if the caller has permission 
-    role = await conn.fetchval("""
-            SELECT r.name from roles r 
-            JOIN users u ON u.role_id = r.id
-            WHERE u.id=$1
-            """,user["id"])
-            
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code = 403, detail = "Only Admin or HR can create permision")
+    from app.utils.permissions import require_permission, MANAGE_DEPARTMENTS
+    require_permission(user, MANAGE_DEPARTMENTS)
     
     # check if department already exists
 
@@ -73,14 +67,8 @@ async def update_department(conn, user, req):
     """
 
     # ✅ 1. Check permission
-    role = await conn.fetchval("""
-        SELECT r.name FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id=$1
-    """, user["id"])
-
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Only Admin or HR can update departments")
+    from app.utils.permissions import require_permission, MANAGE_DEPARTMENTS
+    require_permission(user, MANAGE_DEPARTMENTS)
 
     # ✅ 2. Check if department exists
     dept = await conn.fetchrow("SELECT * FROM departments WHERE id=$1", req.department_id)
@@ -139,14 +127,8 @@ async def delete_department(conn, user, department_id: str):
     Only Admin or HR can perform this action.
     """
     # 1. Check permission
-    role = await conn.fetchval("""
-        SELECT r.name FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id=$1
-    """, user["id"])
-
-    if role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Only Admin or HR can delete departments")
+    from app.utils.permissions import require_permission, MANAGE_DEPARTMENTS
+    require_permission(user, MANAGE_DEPARTMENTS)
 
     # 2. Check if department exists
     dept = await conn.fetchrow("SELECT name FROM departments WHERE id=$1", department_id)

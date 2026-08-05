@@ -56,14 +56,8 @@ async def upload_policy(conn, user, title: str, description: str, file: UploadFi
     - Files are stored under hrms-docs/policies/<uuid>.<ext>
     """
     # 1️⃣ Verify uploader role
-    caller_role = await conn.fetchval("""
-        SELECT r.name FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id=$1
-    """, user["id"])
-
-    if caller_role not in ("hr", "admin"):
-        raise HTTPException(status_code=403, detail="Only HR or Admin can upload policies")
+    from app.utils.permissions import require_permission, MANAGE_POLICIES
+    require_permission(user, MANAGE_POLICIES)
 
     # 2️⃣ Prepare file details
     ext = file.filename.split(".")[-1]

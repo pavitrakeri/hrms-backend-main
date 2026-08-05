@@ -7,13 +7,16 @@ async def list_departments(conn, user):
     """
     
     # Check permission
+    from app.utils.permissions import has_permission, MANAGE_DEPARTMENTS
+    can_manage = has_permission(user, MANAGE_DEPARTMENTS)
+    
     role = await conn.fetchval("""
         SELECT r.name FROM roles r
         JOIN users u ON u.role_id = r.id
         WHERE u.id=$1
     """, user["id"])
 
-    if role not in ("admin", "hr", "line_manager"):
+    if not can_manage and role not in ("line_manager",):
         raise HTTPException(status_code=403, detail="Not authorized to view departments")
 
     # Fetch all departments with manager and HR details
