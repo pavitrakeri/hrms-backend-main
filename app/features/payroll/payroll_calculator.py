@@ -1,5 +1,6 @@
 from datetime import date, timedelta, datetime
 from typing import Optional, Dict, Any
+import json
 
 # --- MAIN API ---
 async def calculate_employee_payroll(conn, user_id, payroll_month: date, up_to_date: Optional[date] = None) -> dict:
@@ -140,11 +141,11 @@ async def upsert_payroll_item(conn, payroll_cycle_id, user_id, payroll_data: dic
     """,
     payroll_cycle_id, user_id,
     payroll_data.get("basic"),
-    payroll_data.get("allowances"),
+    json.dumps(payroll_data.get("allowances", {})),
     payroll_data.get("gross_pay"),
     payroll_data.get("total_deductions"),
     payroll_data.get("net_pay"),
-    payroll_data.get("deductions"),  # Should be JSON
+    json.dumps(payroll_data.get("deductions", {})),  # Serialize to JSON string
     None,  # payslip_url not created yet
     "pending"
     )
