@@ -6,14 +6,8 @@ async def initiate_payroll(conn, user, req):
     Finance or CFO can initiate payroll setup for an employee.
     """
     # ✅ Check role permissions
-    role = await conn.fetchval("""
-        SELECT r.name FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id=$1
-    """, user["id"])
-
-    if role not in ("finance", "cfo", "admin"):
-        raise HTTPException(status_code=403, detail="Only Finance, CFO, or Admin can initiate payroll")
+    from app.utils.permissions import require_permission, MANAGE_PAYROLL
+    require_permission(user, MANAGE_PAYROLL)
 
     # ✅ Resolve employee by email
     emp = await conn.fetchrow("SELECT id, full_name, email FROM users WHERE LOWER(email)=LOWER($1)", req.employee_email)
@@ -59,14 +53,8 @@ async def update_payroll_details(conn, user, employee_email: str, req):
     Finance or CFO can update payroll structure for an employee using their email.
     """
     # ✅ Check role permissions
-    role = await conn.fetchval("""
-        SELECT r.name FROM roles r
-        JOIN users u ON u.role_id = r.id
-        WHERE u.id=$1
-    """, user["id"])
-
-    if role not in ("finance", "cfo", "admin"):
-        raise HTTPException(status_code=403, detail="Only Finance, CFO, or Admin can update payroll details")
+    from app.utils.permissions import require_permission, MANAGE_PAYROLL
+    require_permission(user, MANAGE_PAYROLL)
 
     # ✅ Resolve employee via email
     emp = await conn.fetchrow("SELECT id, email FROM users WHERE LOWER(email)=LOWER($1)", employee_email)
@@ -117,4 +105,26 @@ async def update_payroll_details(conn, user, employee_email: str, req):
         "message": f"Payroll details updated for employee {emp['email']}",
         "gross_monthly": gross_monthly,
         "gross_annual": gross_annual
+    }
+
+
+async def get_payroll_setup(conn, user, employee_id: str):
+    """
+    Get the payroll setup for a specific employee.
+    Requires MANAGE_PAYROLL permission or being the employee themselves.
+    """
+    if str(user["id"]) != employee_id:
+        from app.utils.permissions import require_permission, MANAGE_PAYROLL
+        require_permission(user, MANAGE_PAYROLL)
+
+    payroll = await conn.fetchrow("""
+        SELECT * FROM employee_payroll_setup WHERE employee_id=$1
+    """, employee_id)
+    
+    if not payroll:
+        return {"status": "success", "data": None}
+        
+    return {
+        "status": "success",
+        "data": dict(payroll)
     }
