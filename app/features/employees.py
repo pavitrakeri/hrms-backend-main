@@ -11,13 +11,8 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
     """
     try:
         # Validate caller role
-        caller_role = await conn.fetchval("""
-            SELECT r.name FROM roles r
-            JOIN users u ON u.role_id = r.id
-            WHERE u.id=$1
-        """, user["id"])
-        if caller_role not in ("hr", "admin"):
-            raise HTTPException(status_code=403, detail="Only HR or Admin can add employees")
+        from app.utils.permissions import require_permission, MANAGE_EMPLOYEES
+        require_permission(user, MANAGE_EMPLOYEES)
 
         # Resolve role_id
         role_row = await conn.fetchrow("SELECT id FROM roles WHERE name=$1", req.role)
@@ -150,13 +145,16 @@ async def list_employees(conn, user, department: Optional[str] = None, role: Opt
     HR/Admin see all, Manager sees only their team.
     """
     # get caller role
+    from app.utils.permissions import has_permission, MANAGE_EMPLOYEES
+    can_manage = has_permission(user, MANAGE_EMPLOYEES)
+    
     caller_role = await conn.fetchval("""
         SELECT r.name FROM roles r
         JOIN users u ON u.role_id = r.id
         WHERE u.id=$1
     """, user["id"])
 
-    if caller_role not in ("hr", "admin", "line_manager", "cfo"):
+    if not can_manage and caller_role not in ("line_manager", "cfo"):
         raise HTTPException(status_code=403, detail="Not authorized to view employee list")
 
     # base query with proper department join
@@ -173,7 +171,7 @@ async def list_employees(conn, user, department: Optional[str] = None, role: Opt
     params = []
     conditions = []
 
-    if caller_role == "line_manager":
+    if not can_manage and caller_role == "line_manager":
         # restrict to same department or direct reports
         dept_id = await conn.fetchval("SELECT department_id FROM users WHERE id=$1", user["id"])
         query += " AND (u.department_id=$1 OR u.manager_id=$1)"
@@ -226,13 +224,16 @@ async def get_employee_details(conn, user, employee_id: str):
     logging.info("get_employee_details called: caller_id=%s employee_id=%s", caller_id, employee_id)
 
     # Check authorization
+    from app.utils.permissions import has_permission, MANAGE_EMPLOYEES
+    can_manage = has_permission(user, MANAGE_EMPLOYEES)
+    
     caller_role = await conn.fetchval("""
         SELECT r.name FROM roles r
         JOIN users u ON u.role_id = r.id
         WHERE u.id=$1
     """, user["id"])
 
-    if caller_role not in ("hr", "admin", "line_manager", "cfo"):
+    if not can_manage and caller_role not in ("line_manager", "cfo") and str(user["id"]) != employee_id:
         raise HTTPException(status_code=403, detail="Not authorized to view employee details")
 
     # Fetch employee with full details
@@ -325,13 +326,8 @@ async def update_employee(conn, user, employee_id: str, req):
     """
     try:
         # Validate caller role
-        caller_role = await conn.fetchval("""
-            SELECT r.name FROM roles r
-            JOIN users u ON u.role_id = r.id
-            WHERE u.id=$1
-        """, user["id"])
-        if caller_role not in ("hr", "admin"):
-            raise HTTPException(status_code=403, detail="Only HR or Admin can edit employee details")
+        from app.utils.permissions import require_permission, MANAGE_EMPLOYEES
+        require_permission(user, MANAGE_EMPLOYEES)
 
         # Resolve role_id
         role_row = await conn.fetchrow("SELECT id FROM roles WHERE name=$1", req.role)
