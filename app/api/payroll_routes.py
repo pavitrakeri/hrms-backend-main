@@ -99,14 +99,8 @@ async def trigger_monthly_payroll(
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         # Check permissions
-        role = await conn.fetchval("""
-            SELECT r.name FROM roles r
-            JOIN users u ON u.role_id = r.id
-            WHERE u.id=$1
-        """, user["id"])
-        
-        if role not in ("admin", "finance", "cfo"):
-            raise HTTPException(status_code=403, detail="Only Admin/Finance/CFO can run payroll")
+        from app.utils.permissions import require_permission, MANAGE_PAYROLL
+        require_permission(user, MANAGE_PAYROLL)
         
         try:
             await run_monthly_payroll(conn, month)
