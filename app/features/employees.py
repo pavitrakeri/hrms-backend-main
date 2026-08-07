@@ -112,6 +112,35 @@ async def add_employee(conn, user, req, bg: BackgroundTasks = None):
             req.emergency_contact_name, req.emergency_contact_number,  # $43-$44
             req.employment_status  # $45
             )
+            
+        employee_id = row["id"]
+        
+        # Calculate total salary if not explicitly provided
+        basic = req.basic_salary or 0
+        hra = req.hra or 0
+        mobile = req.mobile or 0
+        transportation = req.transportation or 0
+        other = req.other or 0
+        computed_total = basic + hra + mobile + transportation + other
+        
+        if not req.total_salary and computed_total > 0:
+            await conn.execute("UPDATE users SET total_salary=$1 WHERE id=$2", computed_total, employee_id)
+            
+        # Automatically insert into employee_payroll_setup
+        gross_monthly = req.total_salary or computed_total
+        gross_annual = gross_monthly * 12
+        allowances = mobile + transportation
+        
+        await conn.execute("""
+            INSERT INTO employee_payroll_setup (
+                employee_id, employee_email, basic_salary, hra, allowances, other_benefits,
+                gross_monthly, gross_annual, payment_mode, bank_account_number,
+                bank_name, iban_number, created_by
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'bank_transfer', $9, NULL, $10, $11)
+        """, employee_id, req.email, basic, hra, allowances, other,
+             gross_monthly, gross_annual, req.bank_account_number, req.ifsc_code, user["id"])
+
 
         # Send welcome email notification
         frontend_url = os.getenv("FRONTEND_URL", "https://hrms.aimploy.org").rstrip("/")
