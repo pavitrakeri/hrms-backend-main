@@ -308,6 +308,17 @@ async def get_conversation_messages(conversation_id: str, user=Depends(get_curre
 
         return {"conversation_id": conversation_id, "messages": messages}
 
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, user=Depends(get_current_user)):
+    """Delete a conversation and its messages."""
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM ai_conversations WHERE id=$1 AND user_id=$2",
+            conversation_id, user["id"]
+        )
+        return {"status": "success", "message": "Conversation deleted"}
+
 @router.post("/index-policies")
 async def trigger_policy_indexing(user=Depends(get_current_user)):
     """Admin endpoint to index all policies for RAG semantic search."""
