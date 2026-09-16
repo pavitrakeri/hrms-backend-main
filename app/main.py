@@ -64,6 +64,7 @@ from app.api import payroll_routes
 from app.api import reimbursement_routes
 from app.api import payroll_initiation_routes
 from app.api import projects_routes
+from app.ai import routes as ai_routes
 
 
 app = FastAPI(title="HRMS API")
@@ -130,6 +131,7 @@ app.include_router(payroll_routes.router)
 app.include_router(reimbursement_routes.router)
 app.include_router(payroll_initiation_routes.router)
 app.include_router(projects_routes.router)
+app.include_router(ai_routes.router)
 
 @app.post("/login", response_model=TokenResponse, tags=["Auth"])
 async def login(req: LoginRequest):

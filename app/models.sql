@@ -642,11 +642,254 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date DATE,
     status TEXT NOT NULL DEFAULT 'todo',
     created_at TIMESTAMPTZ DEFAULT now(),
+    processed_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS payroll_cycles_month_key ON payroll_cycles(month);
+
+CREATE TABLE IF NOT EXISTS payroll_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payroll_cycle_id UUID REFERENCES payroll_cycles(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id),
+    basic NUMERIC DEFAULT 0,
+    allowances JSONB DEFAULT '{}', -- e.g. {"hra": 2000, "transport": 500}
+    reimbursements_total NUMERIC DEFAULT 0,
+    deductions JSONB DEFAULT '{}', -- e.g. {"unpaid_leave": 250, "loan": 300}
+    total_deductions NUMERIC DEFAULT 0,
+    gross_pay NUMERIC DEFAULT 0,
+    net_pay NUMERIC DEFAULT 0,
+    gratuity_accrued NUMERIC DEFAULT 0,
+    working_days INTEGER DEFAULT 30,
+    unpaid_leave_days INTEGER DEFAULT 0,
+    sick_days INTEGER DEFAULT 0,
+    notes TEXT,
+    payslip_url TEXT, -- Supabase storage link
+    status TEXT DEFAULT 'pending', -- pending / approved / paid
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(payroll_cycle_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS payroll_items_user_id_idx ON payroll_items(user_id);
+CREATE INDEX IF NOT EXISTS payroll_items_cycle_idx ON payroll_items(payroll_cycle_id);
+
+
+CREATE TABLE IF NOT EXISTS reimbursements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    category TEXT NOT NULL, -- e.g., "Travel"
+    subcategory TEXT,       -- e.g., "Taxi/Uber"
+    amount NUMERIC NOT NULL CHECK (amount > 0),
+    description TEXT,
+    expense_date DATE NOT NULL,
+    supporting_docs JSONB DEFAULT '[]', -- list of Supabase file paths
+    status TEXT DEFAULT 'pending', -- pending / manager_approved / finance_approved / cfo_approved / paid / rejected
+    created_at TIMESTAMPTZ DEFAULT now(),
+    decided_by UUID REFERENCES users(id),
+    decided_at TIMESTAMPTZ,
+    paid_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS reimbursements_user_id_idx ON reimbursements(user_id);
+CREATE INDEX IF NOT EXISTS reimbursements_status_idx ON reimbursements(status);
+
+
+CREATE TABLE IF NOT EXISTS change_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    request_type TEXT NOT NULL, -- e.g., "salary_update", "personal_info_update"
+    old_value JSONB, -- old data snapshot
+    new_value JSONB, -- requested change
+    reason TEXT,
+    status TEXT DEFAULT 'pending', -- pending / approved / rejected
+    created_at TIMESTAMPTZ DEFAULT now(),
+    decided_by UUID REFERENCES users(id),
+    decided_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS change_requests_user_id_idx ON change_requests(user_id);
+CREATE INDEX IF NOT EXISTS change_requests_status_idx ON change_requests(status);
+
+
+CREATE TABLE reimbursement_approvals (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    reimbursement_id uuid REFERENCES reimbursements(id) ON DELETE CASCADE,
+    approver_id uuid REFERENCES users(id),
+    approver_role text,   -- manager / finance / cfo
+    decision text DEFAULT 'pending',  -- pending / approved / rejected / query
+    comment text,
+    decided_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS reimbursement_approvals_reim_idx ON reimbursement_approvals(reimbursement_id);
+CREATE INDEX IF NOT EXISTS reimbursement_approvals_approver_idx ON reimbursement_approvals(approver_id);
+
+
+CREATE TABLE payroll_requests (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_id uuid REFERENCES users(id),
+    request_type text NOT NULL, -- 'advance', 'certificate', 'query', 'schedule_change'
+    amount numeric,
+    purpose text,
+    query_type text,
+    reason text,
+    description text,
+    requested_date date,
+    attachments text[],
+    status text DEFAULT 'pending',
+    current_approver_role text,
+    resolution_notes text,
+    created_at timestamp DEFAULT now(),
+    updated_at timestamp DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS employee_payroll_setup (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_id uuid REFERENCES users(id) ON DELETE CASCADE,
+    employee_email text NOT NULL,
+    basic_salary numeric NOT NULL,
+    hra numeric DEFAULT 0,
+    allowances numeric DEFAULT 0,
+    other_benefits numeric DEFAULT 0,
+    gross_monthly numeric NOT NULL,
+    gross_annual numeric NOT NULL,
+    payment_mode text,
+    bank_account_number text,
+    bank_name text,
+    iban_number text,
+    remarks text,
+    created_by uuid REFERENCES users(id),
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now(),
+    UNIQUE(employee_id)
+);
+
+
+CREATE TABLE payroll_approvals (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    payroll_request_id uuid REFERENCES payroll_requests(id),
+    approver_id uuid REFERENCES users(id),
+    approver_role text,
+    decision text DEFAULT 'pending', -- 'approved' | 'rejected'
+    comment text,
+    decided_at timestamp
+);
+
+
+CREATE TABLE IF NOT EXISTS employee_payroll_setup (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_id uuid REFERENCES users(id) ON DELETE CASCADE,
+    employee_email text NOT NULL,
+    basic_salary numeric NOT NULL,
+    hra numeric DEFAULT 0,
+    allowances numeric DEFAULT 0,
+    other_benefits numeric DEFAULT 0,
+    gross_monthly numeric NOT NULL,
+    gross_annual numeric NOT NULL,
+    payment_mode text,
+    bank_account_number text,
+    bank_name text,
+    iban_number text,
+    remarks text,
+    created_by uuid REFERENCES users(id),
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now(),
+    UNIQUE(employee_id)
+);
+
+
+ALTER TABLE reimbursements
+ADD COLUMN subcategory TEXT;
+
+
+-- ===========================
+-- PROJECTS & TASKS
+-- ===========================
+CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT,
+    created_by UUID NOT NULL REFERENCES users(id),
+    department_id UUID REFERENCES departments(id),
+    start_date DATE,
+    deadline DATE,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'member',
+    joined_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (project_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    assignee_id UUID REFERENCES users(id),
+    created_by UUID NOT NULL REFERENCES users(id),
+    due_date DATE,
+    status TEXT NOT NULL DEFAULT 'todo',
+    created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
-A L T E R   T A B L E   t a s k s   A D D   C O L U M N   I F   N O T   E X I S T S   s t a r t _ d a t e   D A T E ,   A D D   C O L U M N   I F   N O T   E X I S T S   t i m e r _ s t a r t e d _ a t   T I M E S T A M P T Z ,   A D D   C O L U M N   I F   N O T   E X I S T S   t i m e _ s p e n t _ s e c o n d s   I N T   D E F A U L T   0 ;  
-  
- 
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE, ADD COLUMN IF NOT EXISTS timer_started_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS time_spent_seconds INT DEFAULT 0;
+
+-- ===========================
+-- AI ASSISTANT MODULE
+-- ===========================
+CREATE TABLE IF NOT EXISTS ai_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT 'New Conversation',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id);
+
+CREATE TABLE IF NOT EXISTS ai_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+    sender TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tool_calls JSONB,
+    tool_results JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages(conversation_id);
+
+CREATE TABLE IF NOT EXISTS policy_embeddings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    policy_id UUID REFERENCES policies(id) ON DELETE CASCADE,
+    chunk_index INT NOT NULL DEFAULT 0,
+    content TEXT NOT NULL,
+    embedding TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_embeddings_policy ON policy_embeddings(policy_id);
+
+CREATE TABLE IF NOT EXISTS ai_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    prompt TEXT,
+    tool_name TEXT,
+    tool_args JSONB,
+    user_confirmed BOOLEAN DEFAULT false,
+    status TEXT DEFAULT 'pending',
+    result JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_audit_logs_user ON ai_audit_logs(user_id);

@@ -11,3 +11,6 @@ supabase
 python-multipart
 celery[redis]
 redis
+google-genai
+pgvector
+pypdf
