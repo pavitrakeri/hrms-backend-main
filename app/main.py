@@ -136,7 +136,7 @@ app.include_router(ai_routes.router)
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "ok", "version": "1.0.1", "service": "hrms-backend"}
+    return {"status": "ok", "version": "1.0.2", "service": "hrms-backend"}
 
 @app.post("/login", response_model=TokenResponse, tags=["Auth"])
 async def login(req: LoginRequest):
