@@ -18,6 +18,37 @@ def _strip_leading_sql_comments(block: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _split_sql_statements(sql: str) -> list:
+    """Split SQL by semicolons while respecting dollar-quoted blocks ($$...$$)."""
+    statements = []
+    current = []
+    in_dollar = False
+
+    for line in sql.splitlines(keepends=True):
+        if line.count("$$") % 2 == 1:
+            in_dollar = not in_dollar
+
+        if not in_dollar and ";" in line:
+            parts = line.split(";")
+            for part in parts[:-1]:
+                current.append(part)
+                stmt = _strip_leading_sql_comments("".join(current))
+                if stmt:
+                    statements.append(stmt)
+                current = []
+            if parts[-1].strip():
+                current.append(parts[-1])
+        else:
+            current.append(line)
+
+    if current:
+        stmt = _strip_leading_sql_comments("".join(current))
+        if stmt:
+            statements.append(stmt)
+
+    return statements
+
+
 async def run_migrations(conn):
     """Apply SQL migrations from /migrations (idempotent)."""
     migrations_dir = Path(__file__).resolve().parent.parent / "migrations"
@@ -27,11 +58,7 @@ async def run_migrations(conn):
 
     for sql_file in sorted(migrations_dir.glob("*.sql")):
         sql = sql_file.read_text(encoding="utf-8")
-        statements = []
-        for raw in sql.split(";"):
-            stmt = _strip_leading_sql_comments(raw)
-            if stmt:
-                statements.append(stmt)
+        statements = _split_sql_statements(sql)
         for statement in statements:
             try:
                 await conn.execute(statement)
