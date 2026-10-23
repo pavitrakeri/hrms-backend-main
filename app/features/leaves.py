@@ -471,7 +471,7 @@ async def get_leave_calendar(conn, month: Optional[str] = None):
 
     # holidays
     holidays = await conn.fetch("""
-        SELECT date, name FROM holidays
+        SELECT id, date, name FROM holidays
         WHERE date >= $1 AND date < $2
         ORDER BY date
     """, first_day, next_month)
@@ -490,7 +490,7 @@ async def get_leave_calendar(conn, month: Optional[str] = None):
 
     return {
         "month": month,
-        "holidays": [{"date": h["date"].isoformat(), "name": h["name"]} for h in holidays],
+        "holidays": [{"id": str(h["id"]), "date": h["date"].isoformat(), "name": h["name"]} for h in holidays],
         "approved_leaves": [
             {
                 "employee": r["employee"],
@@ -555,3 +555,207 @@ async def cancel_leave(conn, user, leave_id: str, bg: BackgroundTasks):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cancel leave failed: {str(e)}")
+
+
+def _require_admin_or_hr(user: dict):
+    from app.utils.permissions import has_permission, MANAGE_LEAVES
+    role = (user.get("role") or "").lower().strip()
+    if role in ("admin", "hr") or has_permission(user, MANAGE_LEAVES):
+        return True
+    raise HTTPException(status_code=403, detail="Only Admin or HR can perform this action")
+
+
+async def add_holiday(conn, user: dict, name: str, holiday_date: date, notify_all: bool, bg: BackgroundTasks):
+    """
+    Admin/HR adds a public/company holiday to the calendar and broadcasts notification to all portal users.
+    """
+    _require_admin_or_hr(user)
+    
+    clean_name = name.strip() if name else ""
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Holiday name is required")
+
+    holiday_row = await conn.fetchrow("""
+        INSERT INTO holidays (id, date, name)
+        VALUES (gen_random_uuid(), $1, $2)
+        ON CONFLICT (date) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id, date, name
+    """, holiday_date, clean_name)
+
+    if notify_all:
+        active_users = await conn.fetch("SELECT id, email, full_name FROM users WHERE is_active = true")
+        date_formatted = holiday_date.strftime("%A, %d %B %Y")
+        for u in active_users:
+            payload = {
+                "holiday_id": str(holiday_row["id"]),
+                "name": holiday_row["name"],
+                "date": holiday_row["date"].isoformat(),
+                "message": f"New Company Holiday: {holiday_row['name']} on {date_formatted}"
+            }
+            await create_db_notification(conn, str(u["id"]), "holiday_announced", payload)
+            if bg and u.get("email"):
+                subject = f"Company Holiday Announcement: {holiday_row['name']}"
+                body = (
+                    f"Dear {u['full_name'] or 'Employee'},\n\n"
+                    f"A new official company holiday has been added to the calendar:\n\n"
+                    f"Holiday: {holiday_row['name']}\n"
+                    f"Date: {date_formatted}\n\n"
+                    f"You can view the full schedule on the HRMS portal.\n\n"
+                    f"Best regards,\n"
+                    f"Aimploy HR Team"
+                )
+                send_email_background(bg, u["email"], subject, body)
+
+    return {
+        "status": "success",
+        "message": f"Holiday '{holiday_row['name']}' added successfully and notified to all portal users",
+        "holiday": {
+            "id": str(holiday_row["id"]),
+            "date": holiday_row["date"].isoformat(),
+            "name": holiday_row["name"]
+        }
+    }
+
+
+async def delete_holiday(conn, user: dict, holiday_id: str):
+    """
+    Admin/HR removes a holiday from the calendar.
+    """
+    _require_admin_or_hr(user)
+    
+    res = await conn.execute("DELETE FROM holidays WHERE id::text = $1", holiday_id)
+    if res == "DELETE 0":
+        # Check if caller provided date string
+        try:
+            d = datetime.strptime(holiday_id, "%Y-%m-%d").date()
+            res = await conn.execute("DELETE FROM holidays WHERE date = $1", d)
+        except Exception:
+            pass
+
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Holiday not found")
+
+    return {"status": "success", "message": "Holiday deleted successfully"}
+
+
+async def list_all_holidays(conn, year: Optional[int] = None):
+    """
+    List all declared holidays (optionally filtered by year).
+    """
+    if year:
+        rows = await conn.fetch("""
+            SELECT id, date, name FROM holidays 
+            WHERE EXTRACT(YEAR FROM date) = $1 
+            ORDER BY date ASC
+        """, year)
+    else:
+        rows = await conn.fetch("""
+            SELECT id, date, name FROM holidays 
+            ORDER BY date ASC
+        """)
+    return [{"id": str(r["id"]), "date": r["date"].isoformat(), "name": r["name"]} for r in rows]
+
+
+async def assign_leave_by_admin(
+    conn,
+    admin_user: dict,
+    req,
+    bg: BackgroundTasks
+):
+    """
+    Admin/HR directly assigns a leave to an employee and notifies them.
+    """
+    _require_admin_or_hr(admin_user)
+
+    target_user = await _get_user_with_employment(conn, req.employee_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target employee not found")
+
+    leave_type = await conn.fetchrow("SELECT id, name FROM leave_types WHERE id=$1", req.leave_type_id)
+    if not leave_type:
+        raise HTTPException(status_code=400, detail="Invalid leave type")
+    lt_name = leave_type["name"].lower()
+
+    if req.start_date > req.end_date:
+        raise HTTPException(status_code=400, detail="Start date cannot be after end date")
+
+    # Check overlapping approved/pending leaves
+    overlap = await conn.fetchrow("""
+        SELECT id, start_date, end_date FROM leaves
+        WHERE user_id = $1
+          AND status IN ('pending', 'approved')
+          AND start_date <= $3
+          AND end_date >= $2
+        LIMIT 1
+    """, req.employee_id, req.start_date, req.end_date)
+    if overlap:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Employee already has an active leave from {overlap['start_date']} to {overlap['end_date']}."
+        )
+
+    days_requested = _requested_leave_days(req.start_date, req.end_date, req.half_day, req.half_day_slot)
+    if days_requested <= 0:
+        raise HTTPException(status_code=400, detail="Invalid date range")
+
+    status = req.status or "approved"
+
+    async with conn.transaction():
+        leave_row = await conn.fetchrow("""
+            INSERT INTO leaves (
+                id, user_id, leave_type_id, start_date, end_date,
+                half_day, half_day_slot, reason, status, created_at
+            )
+            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, now())
+            RETURNING id
+        """, req.employee_id, req.leave_type_id, req.start_date, req.end_date,
+             req.half_day, req.half_day_slot, req.reason or "Assigned by HR/Admin", status)
+
+        leave_id = str(leave_row["id"])
+
+        # Insert approval log
+        await conn.execute("""
+            INSERT INTO leave_approvals (id, leave_id, approver_id, approver_role, decision, decided_at)
+            VALUES (gen_random_uuid(), $1, $2, $3, $4, now())
+        """, leave_id, admin_user["id"], admin_user.get("role", "admin"), status)
+
+        # Deduct balance if approved and deduct_balance is requested
+        if status == "approved" and getattr(req, "deduct_balance", True):
+            await _increment_used_days(conn, str(req.employee_id), int(req.leave_type_id), days_requested)
+
+        # In-app notification to employee
+        caller_role_label = admin_user.get("role", "admin").upper()
+        payload = {
+            "leave_id": leave_id,
+            "by": admin_user["email"],
+            "leave_type": lt_name,
+            "start_date": req.start_date.isoformat(),
+            "end_date": req.end_date.isoformat(),
+            "days": days_requested,
+            "reason": req.reason,
+            "message": f"A {lt_name.capitalize()} leave ({days_requested} day(s)) has been assigned to you by {caller_role_label}."
+        }
+        await create_db_notification(conn, str(req.employee_id), "leave_assigned", payload)
+
+        # Email notification to employee
+        if bg and target_user.get("email"):
+            subject = f"Leave Assigned: {lt_name.capitalize()} Leave ({req.start_date} to {req.end_date})"
+            body = (
+                f"Dear {target_user['full_name'] or 'Employee'},\n\n"
+                f"A leave has been assigned and registered on your behalf by {caller_role_label} ({admin_user['email']}):\n\n"
+                f"Leave Type: {lt_name.capitalize()} Leave\n"
+                f"Dates: {req.start_date} to {req.end_date} ({days_requested} day(s))\n"
+                f"Status: {status.capitalize()}\n"
+                f"Remarks / Reason: {req.reason or 'Assigned by HR/Admin'}\n\n"
+                f"Best regards,\n"
+                f"Aimploy HR Team"
+            )
+            send_email_background(bg, target_user["email"], subject, body)
+
+    return {
+        "status": "success",
+        "message": f"Leave assigned successfully to {target_user['full_name'] or target_user['email']}",
+        "leave_id": leave_id,
+        "days": days_requested
+    }
+

@@ -12,9 +12,10 @@ from app.features.auth import reset_password
 from .datamodels.attendance import ClockInRequest, ClockOutRequest, AttendanceListResponse
 from .features.attendance import get_latest_attendance
 from app.datamodels.leave_models import (LeaveApplyRequest, ApproveRejectRequest, LeaveApplyResponse,
-                                          LeaveStatusResponse, MyApprovalRow, MyLeaveRow, LeaveCalendarResponse, CancelLeaveResponse)
+                                          LeaveStatusResponse, MyApprovalRow, MyLeaveRow, LeaveCalendarResponse, CancelLeaveResponse,
+                                          AddHolidayRequest, AssignLeaveRequest, AssignLeaveResponse)
 from app.features.leaves import (apply_leave_with_upload, approve_leave, reject_leave, get_my_approvals, get_my_leaves, 
-                                 get_leave_calendar, cancel_leave)
+                                 get_leave_calendar, cancel_leave, add_holiday, delete_holiday, list_all_holidays, assign_leave_by_admin)
 from app.features.uploads import upload_medical_document
 
 from app.datamodels.resignation_models import (ResignationApplyRequest, ApproveRejectRequest, CancelResignationResponse,
@@ -409,6 +410,88 @@ async def leaves_cancel(leave_id: str, bg: BackgroundTasks, user=Depends(get_cur
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
         return await cancel_leave(conn, user, leave_id, bg)
+
+@app.post("/leave/holidays", tags=["Leave"])
+async def add_holiday_api(req: AddHolidayRequest, bg: BackgroundTasks, user=Depends(get_current_user)):
+    """
+    Add a new holiday to the calendar and broadcast notifications to all portal users (Admin/HR only).
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await add_holiday(conn, user, req.name, req.date, req.notify_all, bg)
+
+@app.get("/leave/holidays", tags=["Leave"])
+async def list_holidays_api(year: Optional[int] = None, user=Depends(get_current_user)):
+    """
+    List all declared holidays.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await list_all_holidays(conn, year)
+
+@app.delete("/leave/holidays/{holiday_id}", tags=["Leave"])
+async def delete_holiday_api(holiday_id: str, user=Depends(get_current_user)):
+    """
+    Delete a holiday (Admin/HR only).
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await delete_holiday(conn, user, holiday_id)
+
+@app.post("/leaves/assign", response_model=AssignLeaveResponse, tags=["Leave"])
+async def assign_leave_api(req: AssignLeaveRequest, bg: BackgroundTasks, user=Depends(get_current_user)):
+    """
+    Directly assign a leave to an employee (Admin/HR only).
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await assign_leave_by_admin(conn, user, req, bg)
+
+@app.get("/notifications", tags=["Notifications"])
+async def get_notifications_api(limit: int = 30, user=Depends(get_current_user)):
+    """
+    Get in-app notifications for the current user.
+    """
+    import json
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, type, payload, is_read, created_at
+            FROM notifications
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+        """, user["id"], limit)
+        return [
+            {
+                "id": str(r["id"]),
+                "type": r["type"],
+                "payload": json.loads(r["payload"]) if isinstance(r["payload"], str) else (r["payload"] or {}),
+                "is_read": r["is_read"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None
+            }
+            for r in rows
+        ]
+
+@app.post("/notifications/{notification_id}/read", tags=["Notifications"])
+async def mark_notification_read_api(notification_id: str, user=Depends(get_current_user)):
+    """
+    Mark a notification as read.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2", notification_id, user["id"])
+        return {"status": "success"}
+
+@app.post("/notifications/read-all", tags=["Notifications"])
+async def mark_all_notifications_read_api(user=Depends(get_current_user)):
+    """
+    Mark all notifications as read for current user.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE notifications SET is_read = true WHERE user_id = $1", user["id"])
+        return {"status": "success"}
     
 
 @app.post("/resignations/apply", tags=["Resignation"])

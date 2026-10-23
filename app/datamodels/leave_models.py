@@ -59,8 +59,31 @@ class MyLeaveRow(BaseModel):
     approvals: List[MyLeaveApproval]
 
 class HolidayRow(BaseModel):
+    id: Optional[str] = None
     date: str
     name: str
+
+class AddHolidayRequest(BaseModel):
+    name: str
+    date: date
+    notify_all: bool = True
+
+class AssignLeaveRequest(BaseModel):
+    employee_id: str
+    leave_type_id: int
+    start_date: date
+    end_date: date
+    half_day: bool = False
+    half_day_slot: Optional[str] = None
+    reason: Optional[str] = None
+    deduct_balance: bool = True
+    status: str = "approved"
+
+class AssignLeaveResponse(BaseModel):
+    status: str
+    message: str
+    leave_id: str
+    days: float
 
 class CalendarLeaveRow(BaseModel):
     employee: str
