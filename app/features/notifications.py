@@ -20,10 +20,19 @@ MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET")
 MS_TENANT_ID = os.getenv("MS_TENANT_ID")
 
 async def create_db_notification(conn, user_id: str, ntype: str, payload: Dict):
-    await conn.execute(
-        "INSERT INTO notifications (id, user_id, type, payload) VALUES (gen_random_uuid(), $1, $2, $3)",
-        user_id, ntype, json.dumps(payload)
-    )
+    try:
+        await conn.execute(
+            "INSERT INTO notifications (user_id, type, payload) VALUES ($1::uuid, $2, $3::jsonb)",
+            user_id, ntype, json.dumps(payload)
+        )
+    except Exception:
+        try:
+            await conn.execute(
+                "INSERT INTO notifications (id, user_id, type, payload) VALUES (gen_random_uuid(), $1::uuid, $2, $3::jsonb)",
+                user_id, ntype, json.dumps(payload)
+            )
+        except Exception as e:
+            print(f"[create_db_notification] Warning: Could not create notification: {e}")
 
 def _send_email_sync(to_email: str, subject: str, body: str):
     # Check if Microsoft Graph credentials are set

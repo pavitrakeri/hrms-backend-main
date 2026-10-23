@@ -575,12 +575,23 @@ async def add_holiday(conn, user: dict, name: str, holiday_date: date, notify_al
     if not clean_name:
         raise HTTPException(status_code=400, detail="Holiday name is required")
 
-    holiday_row = await conn.fetchrow("""
-        INSERT INTO holidays (id, date, name)
-        VALUES (gen_random_uuid(), $1, $2)
-        ON CONFLICT (date) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id, date, name
-    """, holiday_date, clean_name)
+    try:
+        holiday_row = await conn.fetchrow("""
+            INSERT INTO holidays (date, name)
+            VALUES ($1, $2)
+            ON CONFLICT (date) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id, date, name
+        """, holiday_date, clean_name)
+    except Exception as e:
+        if "null value in column \"id\"" in str(e).lower() or "not-null" in str(e).lower():
+            holiday_row = await conn.fetchrow("""
+                INSERT INTO holidays (id, date, name)
+                VALUES (gen_random_uuid(), $1, $2)
+                ON CONFLICT (date) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id, date, name
+            """, holiday_date, clean_name)
+        else:
+            raise
 
     if notify_all:
         active_users = await conn.fetch("SELECT id, email, full_name FROM users WHERE is_active = true")
