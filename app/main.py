@@ -9,8 +9,22 @@ from .features.auth import LoginRequest, TokenResponse, verify_password, create_
 from app.datamodels.user_models import ResetPasswordRequest, ResetPasswordResponse
 from app.features.auth import reset_password
 
-from .datamodels.attendance import ClockInRequest, ClockOutRequest, AttendanceListResponse
-from .features.attendance import get_latest_attendance
+from .datamodels.attendance import (
+    ClockInRequest,
+    ClockOutRequest,
+    AttendanceListResponse,
+    RegularisationApplyRequest,
+    RegularisationActionRequest,
+    AttendanceReportResponse,
+)
+from .features.attendance import (
+    get_latest_attendance,
+    get_attendance_report,
+    apply_attendance_regularisation,
+    get_my_regularisations,
+    get_all_regularisations,
+    action_attendance_regularisation,
+)
 from app.datamodels.leave_models import (LeaveApplyRequest, ApproveRejectRequest, LeaveApplyResponse,
                                           LeaveStatusResponse, MyApprovalRow, MyLeaveRow, LeaveCalendarResponse, CancelLeaveResponse,
                                           AddHolidayRequest, AssignLeaveRequest, AssignLeaveResponse)
@@ -179,57 +193,58 @@ async def login(req: LoginRequest):
 @app.post("/attendance/clockin", tags=["Attendance"])
 async def clockin(req: ClockInRequest, user=Depends(get_current_user)):
     try:
+        user_id_str = str(user["id"])
         db_pool = get_db_pool()
         async with db_pool.acquire() as conn:
-            # check if there's any open session globally
+            # Check if there's any open session globally for this user
             latest = await conn.fetchrow("""
                 SELECT id, clock_out_at FROM attendance
-                WHERE user_id=$1
+                WHERE user_id = $1::uuid
                 ORDER BY clock_in_at DESC LIMIT 1
-            """, user["id"])
+            """, user_id_str)
             if latest and latest["clock_out_at"] is None:
-                raise HTTPException(status_code=400, detail="You have an open session. Please clock out first.")
+                raise HTTPException(status_code=400, detail="You already have an open active session. Please clock out first.")
 
-            # check if already clocked in today
-            existing = await conn.fetchrow("""
-                SELECT id, clock_out_at FROM attendance
-                WHERE user_id=$1 AND (clock_in_at AT TIME ZONE 'UTC' + interval '5 hours 30 minutes')::date = CURRENT_DATE
-                ORDER BY clock_in_at DESC LIMIT 1
-            """, user["id"])
-            if existing:
-                raise HTTPException(status_code=400, detail="Already clocked in/out for today")
-
-            # reverse geocode lat/lon to address
+            # Reverse geocode lat/lon to address
             location = await reverse_geocode(req.lat, req.lon)
+            if not location:
+                location = f"Lat: {req.lat:.4f}, Lon: {req.lon:.4f}"
 
-            # insert attendance with location data
+            now_utc = datetime.now(timezone.utc)
+
+            # Insert attendance with timezone-aware timestamp and location data
             await conn.execute("""
-                INSERT INTO attendance (id, user_id, clock_in_at, lat, lon, location)
-                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
-            """, user["id"], datetime.utcnow(), req.lat, req.lon, location)
+                INSERT INTO attendance (id, user_id, clock_in_at, lat, lon, location, is_regularised)
+                VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, false)
+            """, user_id_str, now_utc, req.lat, req.lon, location)
 
             return {
-                "message": "Clock-in successful",
-                "user": user["email"]
+                "status": "success",
+                "message": "Clock-in recorded successfully",
+                "user": user["email"],
+                "clock_in_at": now_utc.isoformat(),
+                "location": location,
             }
     except HTTPException as he:
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Clock-in failed: {str(e)}")
 
+
 @app.get("/attendance/my-location", tags=["Attendance"])
 async def get_my_location(user=Depends(get_current_user)):
+    user_id_str = str(user["id"])
     db_pool = get_db_pool()
     try:
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT lat, lon, location, clock_in_at
                 FROM attendance
-                WHERE user_id=$1
-                  AND date_trunc('day', clock_in_at) = date_trunc('day', now())
+                WHERE user_id = $1::uuid
+                  AND clock_in_at::date = CURRENT_DATE
                 ORDER BY clock_in_at DESC
                 LIMIT 1
-            """, user["id"])
+            """, user_id_str)
 
             if not row:
                 raise HTTPException(status_code=404, detail="You have not clocked in today")
@@ -238,55 +253,60 @@ async def get_my_location(user=Depends(get_current_user)):
                 "lat": row["lat"],
                 "lon": row["lon"],
                 "location": row["location"],
-                "clock_in_at": row["clock_in_at"].isoformat() if row["clock_in_at"] else None
+                "clock_in_at": row["clock_in_at"].isoformat() if row["clock_in_at"] else None,
             }
 
     except HTTPException as he:
-        # Pass through cleanly
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch location: {str(e)}")
-    
-    
+
+
 @app.post("/attendance/clockout", tags=["Attendance"])
 async def clockout(req: ClockOutRequest, user=Depends(get_current_user)):
     try:
+        user_id_str = str(user["id"])
         db_pool = get_db_pool()
         async with db_pool.acquire() as conn:
-            # find the latest clock-in
+            # Find the latest open clock-in
             record = await conn.fetchrow("""
                 SELECT id, clock_in_at, clock_out_at
                 FROM attendance
-                WHERE user_id=$1
+                WHERE user_id = $1::uuid
                 ORDER BY clock_in_at DESC
                 LIMIT 1
-            """, user["id"])
+            """, user_id_str)
 
             if not record:
-                raise HTTPException(status_code=400, detail="No clock-in record found")
+                raise HTTPException(status_code=400, detail="No clock-in record found. Please clock in first.")
 
             if record["clock_out_at"] is not None:
-                raise HTTPException(status_code=400, detail="Latest session is already clocked out")
+                raise HTTPException(status_code=400, detail="Latest session is already clocked out.")
 
-            # calculate total time
+            # Calculate total time with timezone safety
             clock_in_time = record["clock_in_at"]
-            clock_out_time = datetime.now(timezone.utc)
-            total_seconds = int((clock_out_time - clock_in_time).total_seconds())
+            if clock_in_time is None:
+                clock_in_time = datetime.now(timezone.utc)
+            elif clock_in_time.tzinfo is None:
+                clock_in_time = clock_in_time.replace(tzinfo=timezone.utc)
 
-            # update record
+            clock_out_time = datetime.now(timezone.utc)
+            total_seconds = max(0, int((clock_out_time - clock_in_time).total_seconds()))
+
+            # Update record
             await conn.execute("""
                 UPDATE attendance
-                SET clock_out_at=$1, total_seconds=$2
-                WHERE id=$3
+                SET clock_out_at = $1, total_seconds = $2
+                WHERE id = $3
             """, clock_out_time, total_seconds, record["id"])
 
         return {
             "status": "success",
-            "message": "Clock-out successful",
+            "message": "Clock-out recorded successfully",
             "user": user["email"],
             "clock_in": clock_in_time.isoformat(),
             "clock_out": clock_out_time.isoformat(),
-            "total_seconds": total_seconds
+            "total_seconds": total_seconds,
         }
 
     except HTTPException as he:
@@ -296,11 +316,107 @@ async def clockout(req: ClockOutRequest, user=Depends(get_current_user)):
 
 
 @app.get("/attendance/latest", response_model=AttendanceListResponse, tags=["Attendance"])
-async def attendance_latest(limit: int = 10, employee_id: str = None, user=Depends(get_current_user)):
+async def attendance_latest(
+    limit: int = 200,
+    employee_id: str = None,
+    scope: str = None,
+    user=Depends(get_current_user),
+):
     db_pool = get_db_pool()
     async with db_pool.acquire() as conn:
-        records = await get_latest_attendance(conn, user, limit, employee_id)
+        records = await get_latest_attendance(conn, user, limit, employee_id, scope)
         return {"records": records}
+
+
+@app.get("/attendance/report", response_model=AttendanceReportResponse, tags=["Attendance"])
+async def attendance_report_endpoint(
+    from_date: date = None,
+    to_date: date = None,
+    employee_id: str = None,
+    department_id: str = None,
+    status: str = None,
+    search: str = None,
+    limit: int = 200,
+    offset: int = 0,
+    user=Depends(get_current_user),
+):
+    """
+    Detailed attendance report with multi-criteria filters for Admin and HR.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await get_attendance_report(
+            conn,
+            user,
+            from_date=from_date,
+            to_date=to_date,
+            employee_id=employee_id,
+            department_id=department_id,
+            status=status,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+
+
+# =========================================================================
+# ATTENDANCE REGULARISATION ROUTES
+# =========================================================================
+
+@app.post("/attendance/regularisation/apply", tags=["Attendance Regularisation"])
+async def attendance_regularisation_apply(
+    req: RegularisationApplyRequest,
+    user=Depends(get_current_user),
+):
+    """
+    Employee submits an attendance regularisation request to correct missing or incorrect logs.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await apply_attendance_regularisation(conn, user, req)
+
+
+@app.get("/attendance/regularisation/my", tags=["Attendance Regularisation"])
+async def attendance_regularisation_my(user=Depends(get_current_user)):
+    """
+    Get personal attendance regularisation requests.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        requests = await get_my_regularisations(conn, user)
+        return {"requests": requests}
+
+
+@app.get("/attendance/regularisation/all", tags=["Attendance Regularisation"])
+async def attendance_regularisation_all(
+    status: str = None,
+    department_id: str = None,
+    employee_id: str = None,
+    user=Depends(get_current_user),
+):
+    """
+    Get all attendance regularisation requests (Admin / HR / Line Manager).
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        requests = await get_all_regularisations(conn, user, status, department_id, employee_id)
+        return {"requests": requests}
+
+
+@app.post("/attendance/regularisation/{reg_id}/action", tags=["Attendance Regularisation"])
+async def attendance_regularisation_action(
+    reg_id: str,
+    req: RegularisationActionRequest,
+    user=Depends(get_current_user),
+):
+    """
+    Approve or reject an attendance regularisation request.
+    """
+    db_pool = get_db_pool()
+    async with db_pool.acquire() as conn:
+        return await action_attendance_regularisation(
+            conn, user, reg_id, req.action, req.rejection_reason
+        )
 
 @app.post("/leaves/apply", response_model=LeaveApplyResponse, tags=["Leave"])
 async def leaves_apply(

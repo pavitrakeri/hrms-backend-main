@@ -122,6 +122,25 @@ CREATE TABLE IF NOT EXISTS attendance (
     lat DOUBLE PRECISION,
     lon DOUBLE PRECISION,
     location TEXT,
+    is_regularised BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- ===========================
+-- ATTENDANCE REGULARISATION
+-- ===========================
+CREATE TABLE IF NOT EXISTS attendance_regularisations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    attendance_id UUID REFERENCES attendance(id) ON DELETE SET NULL,
+    request_date DATE NOT NULL,
+    requested_clock_in TIMESTAMP WITH TIME ZONE NOT NULL,
+    requested_clock_out TIMESTAMP WITH TIME ZONE NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    rejection_reason TEXT,
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
