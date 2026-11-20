@@ -4,3 +4,12 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+.pytest_cache/
+
+# Local AI assistant rules (do not commit)
+AGENT.md
+
+# Local test storage
+storage/payroll_vault/*
+!storage/payroll_vault/.gitkeep
+sample_reverse_mis_hdfc.csv

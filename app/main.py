@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Form, UploadFile, File, Request
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 import uvicorn
 import logging
 from fastapi.exceptions import RequestValidationError
@@ -75,10 +76,9 @@ from typing import List, Optional
 
 from app.utils.geocode import reverse_geocode
 
-from app.api import payroll_routes
 from app.api import reimbursement_routes
-from app.api import payroll_initiation_routes
 from app.api import projects_routes
+from app.api import payroll_v2_routes
 from app.ai import routes as ai_routes
 
 
@@ -95,6 +95,19 @@ app.add_middleware(
 )
 
 
+def _clean_pydantic_errors(errors):
+    clean = []
+    for e in errors:
+        item = dict(e)
+        if "ctx" in item and isinstance(item["ctx"], dict):
+            item["ctx"] = {
+                k: (str(v) if isinstance(v, Exception) else v)
+                for k, v in item["ctx"].items()
+            }
+        clean.append(item)
+    return jsonable_encoder(clean)
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     status_code = 500
@@ -104,6 +117,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         status_code = exc.status_code
         detail = exc.detail
         message = None
+    elif "invalid input for query argument" in str(exc).lower() or "invalid uuid" in str(exc).lower():
+        status_code = 400
+        detail = "Invalid input or UUID format"
+        message = str(exc)
     else:
         logging.exception("Unhandled error on %s %s", request.method, request.url.path)
         
@@ -128,7 +145,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     }
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": _clean_pydantic_errors(exc.errors())},
         headers=headers
     )
 
@@ -142,10 +159,9 @@ async def shutdown():
     await close_db()
 
 
-app.include_router(payroll_routes.router)
 app.include_router(reimbursement_routes.router)
-app.include_router(payroll_initiation_routes.router)
 app.include_router(projects_routes.router)
+app.include_router(payroll_v2_routes.router)
 app.include_router(ai_routes.router)
 
 @app.get("/health", tags=["Health"])
